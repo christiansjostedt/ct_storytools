@@ -1,0 +1,20 @@
+{
+  "1": {
+    "inputs": {
+      "mode": "create_dir",
+      "project": "project",
+      "sequence": "seq",
+      "shot": "shot",
+      "name": "name",
+      "flux_iterations": 1,
+      "dummy_path": "/ComfyUI/custom_nodes/ct_storytools/assets/dummy_image.png",
+      "output_base": "/ComfyUI/output",
+      "copied_dummies": "",
+      "timestamp": 0
+    },
+    "class_type": "FSUtilsNode",
+    "_meta": {
+      "title": "CT FS Utils"
+    }
+  }
+}

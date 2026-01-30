@@ -1,0 +1,33 @@
+{
+  "1": {
+    "inputs": {
+      "workflow_json": "REPLACETEXT",
+      "host": "127.0.0.1:8188",
+      "width": 1280,
+      "height": 720,
+      "json_file": "",
+      "num_jobs": 1,
+      "project": "project",
+      "sequence": "seq",
+      "shot": "shot",
+      "name": "name"
+    },
+    "class_type": "CT_WAN_TRIGGER",
+    "_meta": {
+      "title": "ct_wan2_5s"
+    }
+  },
+  "2": {
+    "inputs": {
+      "mode": "raw value",
+      "input": [
+        "1",
+        0
+      ]
+    },
+    "class_type": "DisplayAny",
+    "_meta": {
+      "title": "🔧 Display Any"
+    }
+  }
+}

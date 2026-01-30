@@ -1,0 +1,69 @@
+#GLOBAL SETTINGS
+PROJECT=Teapot
+WIDTH=1280
+HEIGHT=720
+GRAPHICAL_STYLE=Realistic, muted colors, photo, dslr, highest quality, cinematic, professional lighting, anamorphic lense, halation
+
+DEBUG_MODE=0
+HOST=172.16.1.12:8188
+SEED_START=837959500944242
+FLUX_CFG=1
+FLUX_steps=30
+FLUX_ITERATIONS=3
+FLUX_DENOISE=1
+WAN_CFG=1
+WAN_STEPS=4
+
+GENERATE_QWEN_ANGLES=3
+
+AUTO_CLEANUP=0
+
+SYNOPSIS=
+A teapot
+
+
+
+
+
+#WORKFLOWS AVAILABLE
+#ct_flux_t2i,ct_wan2_5s
+
+!---------
+SEQUENCE=Teaser
+SHOT=0010
+NAME=A001C001
+JOBTYPE=ct_flux_t2i, ct_wan2_5s
+LORAS=
+FLUX_steps=20
+FLUX_CFG=1
+FLUX_ITERATIONS=1
+
+NEGATIVE_PROMPT=cartoon, text, low quality, deformed limbs, bad anatomy, phantom limbs
+AUDIO_PROMPT=
+ENVIRONMENT_PROMPT=The environment is a A hyper-realistic, cinematic wide-angle photograph of jagged black volcanic rocks at the edge of a vast, stormy Pacific Ocean at dawn, evoking the raw isolation and primal fury of the wilderness in 'Into the Wild' fused with the relentless pounding waves of 'Cast Away'. Turbulent turquoise waves crash in slow-motion foam against the shore, sending sprays of mist high into the air, while the horizon stretches infinitely under a bruised sky of deep indigo and slate gray, pierced by subtle golden rays from the rising sun filtering through low-hanging fog, casting long ethereal shadows across the desolate, mist-shrouded coastline littered with twisted driftwood and weathered seashells. 
+
+
+POSITIVE_PROMPT=a long lense shot.
+
+
+
+
+!---------
+SEQUENCE=Teaser
+SHOT=0020
+NAME=A001C001
+JOBTYPE=ct_flux_t2i, ct_wan2_5s
+LORAS=
+FLUX_steps=20
+FLUX_CFG=1
+FLUX_ITERATIONS=1
+
+NEGATIVE_PROMPT=cartoon, text, low quality, deformed limbs, bad anatomy, phantom limbs
+AUDIO_PROMPT=
+ENVIRONMENT_PROMPT=The environment is a A hyper-realistic, cinematic wide-angle photograph of jagged black volcanic rocks at the edge of a vast, stormy Pacific Ocean at dawn, evoking the raw isolation and primal fury of the wilderness in 'Into the Wild' fused with the relentless pounding waves of 'Cast Away'. Turbulent turquoise waves crash in slow-motion foam against the shore, sending sprays of mist high into the air, while the horizon stretches infinitely under a bruised sky of deep indigo and slate gray, pierced by subtle golden rays from the rising sun filtering through low-hanging fog, casting long ethereal shadows across the desolate, mist-shrouded coastline littered with twisted driftwood and weathered seashells. 
+
+
+POSITIVE_PROMPT=a wide angle shot of a landscape
+
+
+
