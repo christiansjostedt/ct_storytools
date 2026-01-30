@@ -1,6 +1,8 @@
 ToDO:
 
-right now fluxgeneration works as it should, creates folders and dosnt fail because of comfyui cache except
+* fluxgeneration works as it should, creates folders and dosnt fail because of comfyui cache except
 
-right now I think wan generation works.
+* wan generation works.
+
+* Git install doesnt work since the repo now has a different name and the paths gets messed up, need to fix
 -------------------------------

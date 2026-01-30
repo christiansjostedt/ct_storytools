@@ -6,11 +6,11 @@ Custom nodes for story-based image generation workflows (Flux T2I, WAN 2.5s, Qwe
 
 Via ComfyUI-Manager:
 - Click **Manager** button → **Install via Git URL**
-- Paste: `https://github.com/christiansjostedt/ComfyUI-CTStoryTools.git`
+- Paste: `https://github.com/christiansjostedt/ct_storytools.git`
 - Click Install
 
 Manual install:
 ```bash
 cd ComfyUI/custom_nodes
-git clone https://github.com/christiansjostedt/ComfyUI-CTStoryTools.git
+git clone https://github.com/christiansjostedt/ct_storytools.git
 # restart ComfyUI — dependencies from requirements.txt should install automatically via Manager
