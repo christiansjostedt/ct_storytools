@@ -12,5 +12,5 @@ Via ComfyUI-Manager:
 Manual install:
 ```bash
 cd ComfyUI/custom_nodes
-git clone https://github.com/yourusername/your-repo-name.git
+git clone https://github.com/christiansjostedt/ComfyUI-CTStoryTools.git
 # restart ComfyUI — dependencies from requirements.txt should install automatically via Manager
