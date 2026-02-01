@@ -1,23 +1,21 @@
 #!/usr/bin/env python3
-# GUI for CT Storytools Launcher (Fixed DnD Integration - TkinterDnD Root with CTkFrame)
+# GUI for CT Storytools Launcher + Shot Text Editor (original text format)
 # Requirements: pip install customtkinter tkinterdnd2 requests
-# - CustomTkinter for dark theme and modern UI.
-# - tkinterdnd2 for drag-and-drop file support (fixed: TkinterDnD.Tk root with CTkFrame for widgets).
-# Run in the venv with Python 3.11+.
-# Calls slimmed launcher.run_all/config_storytools_execution.
 import customtkinter as ctk
-from tkinter import messagebox, filedialog, Entry  # For standard Entry for DnD
-from tkinterdnd2 import TkinterDnD, DND_FILES  # FIXED: TkinterDnD.Tk root
-import threading  # For non-blocking execution
+from tkinter import messagebox, filedialog, Entry
+from tkinterdnd2 import TkinterDnD, DND_FILES
+import threading
 import sys
 import os
+import re
+
 # Import your modules (adjust if needed)
 import parser  # Your config_parser.py
 from launcher import run_all, run_storytools_execution  # Slimmed launcher
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-ctk.set_appearance_mode("dark")  # Dark theme
+ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
 
 
@@ -26,65 +24,82 @@ class StorytoolsGUI:
         self.root = root
         self.config_path = None
         self.config = None
+        self.original_lines = None
+        self.shot_ranges = {}  # (seq, shot) → (start incl. !---------, end excl. next)
         self.project = ""
         self.sequences = []
         self.selected_seq = None
-        self.shots = {}  # {seq: [shot_ids]}
+        self.shots = {}
         self.selected_shot = None
         self.selected_jobtype = None
-        self.jobtypes = ['ct_flux_t2i', 'ct_wan2_5s', 'ct_qwen_i2i']  # Hardcoded for now
-        self.main_frame = ctk.CTkFrame(root)  # FIXED: CTkFrame on TkinterDnD.Tk root
+        self.jobtypes = ['ct_flux_t2i', 'ct_wan2_5s', 'ct_qwen_i2i']
+
+        self.main_frame = ctk.CTkFrame(root)
         self.main_frame.pack(fill="both", expand=True, padx=10, pady=10)
+
         self.create_widgets()
-        self.bind_drop_target()  # For drag-drop
+        self.bind_drop_target()
 
     def create_widgets(self):
-        # Config Path Entry
         path_frame = ctk.CTkFrame(self.main_frame)
         path_frame.pack(pady=10, padx=10, fill="x")
         ctk.CTkLabel(path_frame, text="Config File Path:").pack(anchor="w", padx=5, pady=5)
-        # FIXED: Use standard Tkinter Entry on root for DnD support, styled dark
-        self.path_entry = Entry(path_frame, width=50, bg="#2b2b2b", fg="white", insertbackground="white", relief="flat")
+        self.path_entry = Entry(path_frame, width=50, bg="#2b2b2b", fg="white",
+                                insertbackground="white", relief="flat")
         self.path_entry.pack(padx=5, pady=5, fill="x")
-        self.path_entry.insert(0, "Drag/drop or browse config file here")  # Placeholder
+        self.path_entry.insert(0, "Drag/drop or browse config file here")
         self.path_entry.bind('<FocusIn>', self.on_entry_focus_in)
         self.path_entry.bind('<FocusOut>', self.on_entry_focus_out)
-        browse_btn = ctk.CTkButton(path_frame, text="Browse", command=self.browse_file)
-        browse_btn.pack(pady=5)
-        # Refresh Button
+        ctk.CTkButton(path_frame, text="Browse", command=self.browse_file).pack(pady=5)
+
         self.refresh_btn = ctk.CTkButton(self.main_frame, text="Refresh Config", command=self.refresh_config)
         self.refresh_btn.pack(pady=5)
-        # Project Label
-        self.project_label = ctk.CTkLabel(self.main_frame, text="Project: None", font=ctk.CTkFont(size=14, weight="bold"))
+
+        self.project_label = ctk.CTkLabel(self.main_frame, text="Project: None",
+                                          font=ctk.CTkFont(size=14, weight="bold"))
         self.project_label.pack(pady=10)
-        # Sequence Dropdown
+
         ctk.CTkLabel(self.main_frame, text="Sequence:").pack(anchor="w", padx=20)
         self.seq_var = ctk.StringVar(value="Select Sequence")
-        self.seq_dropdown = ctk.CTkOptionMenu(
-            self.main_frame, variable=self.seq_var, values=["None"], command=self.on_seq_change
-        )
+        self.seq_dropdown = ctk.CTkOptionMenu(self.main_frame, variable=self.seq_var,
+                                              values=["None"], command=self.on_seq_change)
         self.seq_dropdown.pack(pady=5, padx=20)
-        # Shot Dropdown
+
         ctk.CTkLabel(self.main_frame, text="Shot:").pack(anchor="w", padx=20)
         self.shot_var = ctk.StringVar(value="Select Shot")
-        self.shot_dropdown = ctk.CTkOptionMenu(
-            self.main_frame, variable=self.shot_var, values=["None"], command=self.on_shot_change
-        )
+        self.shot_dropdown = ctk.CTkOptionMenu(self.main_frame, variable=self.shot_var,
+                                               values=["None"], command=self.on_shot_change)
         self.shot_dropdown.pack(pady=5, padx=20)
-        # Job Type Dropdown
+
         ctk.CTkLabel(self.main_frame, text="Job Type:").pack(anchor="w", padx=20)
         self.jobtype_var = ctk.StringVar(value="Select Job Type")
-        self.jobtype_dropdown = ctk.CTkOptionMenu(
-            self.main_frame, variable=self.jobtype_var, values=["None"], command=self.on_jobtype_change
-        )
+        self.jobtype_dropdown = ctk.CTkOptionMenu(self.main_frame, variable=self.jobtype_var,
+                                                  values=["None"], command=self.on_jobtype_change)
         self.jobtype_dropdown.pack(pady=5, padx=20)
-        # Buttons
+
+        ctk.CTkLabel(self.main_frame, text="Shot Editor (original text format)").pack(anchor="w", padx=20, pady=(10,0))
+        self.editor_info = ctk.CTkLabel(self.main_frame,
+            text="Only lines for the selected shot (including !---------) • globals excluded",
+            font=ctk.CTkFont(size=11, slant="italic"), text_color="gray")
+        self.editor_info.pack(anchor="w", padx=20, pady=(2,6))
+
+        self.shot_editor = ctk.CTkTextbox(self.main_frame, height=260, width=560, wrap="none")
+        self.shot_editor.pack(pady=6, padx=20, fill="both")
+
+        # Buttons row: Save + New Shot
+        edit_btn_frame = ctk.CTkFrame(self.main_frame)
+        edit_btn_frame.pack(pady=10, padx=20, fill="x")
+        self.save_btn = ctk.CTkButton(edit_btn_frame, text="Save Shot Changes", command=self.save_changes)
+        self.save_btn.pack(side="left", padx=(0, 10))
+        self.new_shot_btn = ctk.CTkButton(edit_btn_frame, text="New Shot", command=self.create_new_shot, fg_color="#4CAF50")
+        self.new_shot_btn.pack(side="left")
+
         btn_frame = ctk.CTkFrame(self.main_frame)
         btn_frame.pack(pady=20, padx=10, fill="x")
-        self.run_all_btn = ctk.CTkButton(btn_frame, text="Run All", command=self.run_all_threaded, fg_color="green")
-        self.run_all_btn.pack(pady=5, side="left", expand=True)
-        self.run_selected_btn = ctk.CTkButton(btn_frame, text="Run Selected", command=self.run_selected_threaded, fg_color="orange")
-        self.run_selected_btn.pack(pady=5, side="right", expand=True)
+        ctk.CTkButton(btn_frame, text="Run All", command=self.run_all_threaded,
+                      fg_color="green").pack(pady=5, side="left", expand=True)
+        ctk.CTkButton(btn_frame, text="Run Selected", command=self.run_selected_threaded,
+                      fg_color="orange").pack(pady=5, side="right", expand=True)
 
     def on_entry_focus_in(self, event):
         if self.path_entry.get() == "Drag/drop or browse config file here":
@@ -95,21 +110,17 @@ class StorytoolsGUI:
             self.path_entry.insert(0, "Drag/drop or browse config file here")
 
     def bind_drop_target(self):
-        # FIXED: Register DnD directly on the standard Entry (on TkinterDnD.Tk root)
         self.path_entry.drop_target_register(DND_FILES)
         self.path_entry.dnd_bind('<<Drop>>', self.on_drop)
 
     def on_drop(self, event):
-        """Handle file drop."""
-        # FIXED: Use event.data directly for parsing in standard Entry on TkinterDnD root
         files = self.root.tk.splitlist(event.data)
         if files:
             self.path_entry.delete(0, "end")
-            self.path_entry.insert(0, files[0])  # Take first file
+            self.path_entry.insert(0, files[0])
             self.refresh_config()
 
     def browse_file(self):
-        """Open file dialog."""
         file = filedialog.askopenfilename(filetypes=[("Text files", "*.txt"), ("All files", "*.*")])
         if file:
             self.path_entry.delete(0, "end")
@@ -117,159 +128,314 @@ class StorytoolsGUI:
             self.refresh_config()
 
     def refresh_config(self):
-        """Parse config and populate GUI."""
         path = self.path_entry.get().strip()
-        if path == "Drag/drop or browse config file here" or not path or not os.path.exists(path):
+        if path in ("", "Drag/drop or browse config file here") or not os.path.exists(path):
             messagebox.showerror("Error", "Invalid config path!")
             return
+
         try:
+            with open(path, encoding='utf-8') as f:
+                self.original_lines = f.readlines()
+
             self.config = parser.parse_config(path)
             self.config_path = path
+
             project = self.config['globals'].get('PROJECT', 'Unknown')
             self.project_label.configure(text=f"Project: {project}")
-            self.sequences = sorted(self.config[project].keys())
-            self.seq_dropdown.configure(values=self.sequences)
-            # FIXED: Preserve selection if it still exists
+
+            self.sequences = sorted(self.config.get(project, {}).keys())
+            self.seq_dropdown.configure(values=self.sequences or ["None"])
+
+            self.shot_ranges.clear()
+            self._scan_shot_ranges()
+
             if self.sequences:
-                if self.selected_seq and self.selected_seq in self.sequences:
+                if self.selected_seq in self.sequences:
                     self.seq_var.set(self.selected_seq)
-                    self.on_seq_change(self.selected_seq)  # Refresh shots/checkboxes for this seq
                 else:
-                    # Fall back to first
                     self.seq_var.set(self.sequences[0])
-                    self.on_seq_change(self.sequences[0])
+                self.on_seq_change(self.seq_var.get())
             else:
-                self.seq_dropdown.configure(values=["None"])
-                self.seq_var.set("Select Sequence")
-                self.shot_dropdown.configure(values=["None"])
-                self.shot_var.set("Select Shot")
-                self.jobtype_dropdown.configure(values=["None"])
-                self.jobtype_var.set("Select Job Type")
-                self.selected_jobtype = None
+                self._clear_dropdowns()
+
         except Exception as e:
-            messagebox.showerror("Parse Error", f"Failed to parse config:\n{str(e)}")
-            print(f"Debug - Parse error: {e}", file=sys.stderr)  # To terminal
+            messagebox.showerror("Parse Error", f"Failed to parse:\n{str(e)}")
+            print(f"Parse error: {e}", file=sys.stderr)
+
+    def _clear_dropdowns(self):
+        self.seq_var.set("Select Sequence")
+        self.shot_var.set("Select Shot")
+        self.jobtype_var.set("Select Job Type")
+        self.selected_seq = self.selected_shot = self.selected_jobtype = None
+        self.shot_editor.delete("1.0", "end")
+
+    def _scan_shot_ranges(self):
+        if not self.original_lines:
+            return
+
+        self.shot_ranges.clear()
+        current_seq = None
+        block_start = -1
+
+        i = 0
+        while i < len(self.original_lines):
+            line = self.original_lines[i].strip()
+
+            if line.startswith('SEQUENCE='):
+                current_seq = line[9:].strip()
+                i += 1
+                continue
+
+            if line.startswith('!---------'):
+                if block_start != -1 and current_seq is not None:
+                    shot_id = None
+                    for j in range(i - 1, block_start - 1, -1):
+                        l = self.original_lines[j].strip()
+                        if l.startswith('SHOT='):
+                            shot_id = l[5:].strip()
+                            break
+                    if shot_id:
+                        self.shot_ranges[(current_seq, shot_id)] = (block_start, i)
+
+                block_start = i
+                i += 1
+                continue
+
+            i += 1
+
+        if block_start != -1 and current_seq is not None:
+            shot_id = None
+            for j in range(len(self.original_lines) - 1, block_start - 1, -1):
+                l = self.original_lines[j].strip()
+                if l.startswith('SHOT='):
+                    shot_id = l[5:].strip()
+                    break
+            if shot_id:
+                self.shot_ranges[(current_seq, shot_id)] = (block_start, len(self.original_lines))
 
     def on_seq_change(self, selection):
-        """Update shots dropdown and jobtype dropdown."""
-        self.selected_seq = selection if selection != "Select Sequence" else None
-        if self.selected_seq and self.config:
-            project = self.config['globals']['PROJECT']
-            shots = sorted(self.config[project][self.selected_seq].keys())
-            self.shots[self.selected_seq] = shots
-            self.shot_dropdown.configure(values=shots)
-            # FIXED: Preserve shot selection if it still exists under this seq
-            if shots:
-                if self.selected_shot and self.selected_shot in shots:
-                    self.shot_var.set(self.selected_shot)
-                    self.on_shot_change(self.selected_shot)  # Refresh jobtype for this shot
-                else:
-                    # Fall back to first shot
-                    self.shot_var.set(shots[0])
-                    self.on_shot_change(shots[0])
-            else:
-                self.shot_dropdown.configure(values=["None"])
-                self.shot_var.set("Select Shot")
-                self.jobtype_dropdown.configure(values=["None"])
-                self.jobtype_var.set("Select Job Type")
-                self.selected_jobtype = None
-        else:
+        self.selected_seq = None if selection == "Select Sequence" else selection
+
+        if not self.selected_seq:
             self.shot_dropdown.configure(values=["None"])
             self.shot_var.set("Select Shot")
             self.jobtype_dropdown.configure(values=["None"])
             self.jobtype_var.set("Select Job Type")
             self.selected_jobtype = None
+            self.shot_editor.delete("1.0", "end")
+            return
 
-    def on_shot_change(self, selection):
-        """Update jobtype dropdown based on available JOBTYPEs."""
-        self.selected_shot = selection if selection != "Select Shot" else None
-        if self.selected_shot and self.selected_seq and self.config:
-            project = self.config['globals']['PROJECT']
-            # Collect all unique JOBTYPEs across subshots under this SHOT
-            available_jts = set()
-            for subshot_id in self.config[project][self.selected_seq][self.selected_shot]:
-                shot_data = self.config[project][self.selected_seq][self.selected_shot][subshot_id]
-                jobtype_str = shot_data.get('JOBTYPE') or shot_data.get('IMAGE_JOBTYPE') or shot_data.get('VIDEO_JOBTYPE')
-                if jobtype_str:
-                    jts = [jt.strip() for jt in jobtype_str.split(',') if jt.strip()]
-                    available_jts.update(jt for jt in jts if jt in self.jobtypes)  # Filter to known
-            # Update jobtype dropdown
-            available_list = sorted(list(available_jts)) if available_jts else ["None"]
-            self.jobtype_dropdown.configure(values=available_list)
-            if available_list != ["None"]:
-                if self.selected_jobtype and self.selected_jobtype in available_list:
-                    self.jobtype_var.set(self.selected_jobtype)
-                else:
-                    self.jobtype_var.set(available_list[0])
-                self.selected_jobtype = self.jobtype_var.get()
-            else:
-                self.jobtype_var.set("Select Job Type")
-                self.selected_jobtype = None
+        project = self.config['globals']['PROJECT']
+        shots = sorted(self.config[project].get(self.selected_seq, {}).keys())
+        self.shots[self.selected_seq] = shots
+        self.shot_dropdown.configure(values=shots or ["None"])
+
+        if shots:
+            self.shot_var.set(self.selected_shot if self.selected_shot in shots else shots[0])
+            self.on_shot_change(self.shot_var.get())
         else:
+            self.shot_var.set("Select Shot")
             self.jobtype_dropdown.configure(values=["None"])
             self.jobtype_var.set("Select Job Type")
             self.selected_jobtype = None
+            self.shot_editor.delete("1.0", "end")
+
+    def on_shot_change(self, selection):
+        self.selected_shot = None if selection == "Select Shot" else selection
+
+        if not self.selected_shot or not self.selected_seq:
+            self.jobtype_dropdown.configure(values=["None"])
+            self.jobtype_var.set("Select Job Type")
+            self.selected_jobtype = None
+            self.shot_editor.delete("1.0", "end")
+            return
+
+        project = self.config['globals']['PROJECT']
+
+        available_jts = set()
+        shot_container = self.config[project][self.selected_seq].get(self.selected_shot, {})
+        for sub_data in shot_container.values():
+            jt_str = sub_data.get('JOBTYPE') or sub_data.get('IMAGE_JOBTYPE') or sub_data.get('VIDEO_JOBTYPE') or ''
+            if jt_str:
+                jts = [jt.strip() for jt in jt_str.split(',') if jt.strip()]
+                available_jts.update(jt for jt in jts if jt in self.jobtypes)
+
+        avail_list = sorted(available_jts) or ["None"]
+        self.jobtype_dropdown.configure(values=avail_list)
+        if avail_list != ["None"]:
+            self.jobtype_var.set(self.selected_jobtype if self.selected_jobtype in avail_list else avail_list[0])
+            self.selected_jobtype = self.jobtype_var.get()
+        else:
+            self.jobtype_var.set("Select Job Type")
+            self.selected_jobtype = None
+
+        key = (self.selected_seq, self.selected_shot)
+        if key in self.shot_ranges:
+            start, end = self.shot_ranges[key]
+            block = ''.join(self.original_lines[start:end])
+            self.shot_editor.delete("1.0", "end")
+            self.shot_editor.insert("1.0", block)
+        else:
+            self.shot_editor.delete("1.0", "end")
+            self.shot_editor.insert("1.0", f"# Could not locate block for shot '{self.selected_shot}'\n")
 
     def on_jobtype_change(self, selection):
-        """Update selected jobtype."""
-        self.selected_jobtype = selection if selection != "Select Job Type" else None
+        self.selected_jobtype = None if selection == "Select Job Type" else selection
 
     def get_selected_jobtype(self):
-        """Get the selected jobtype."""
-        return self.selected_jobtype if self.selected_jobtype and self.selected_jobtype != "Select Job Type" else None
+        jt = self.selected_jobtype
+        return jt if jt and jt != "Select Job Type" else None
+
+    def save_changes(self):
+        if not self.selected_seq or not self.selected_shot or not self.original_lines:
+            messagebox.showerror("Error", "No shot selected or no file loaded.")
+            return
+
+        key = (self.selected_seq, self.selected_shot)
+        if key not in self.shot_ranges:
+            messagebox.showerror("Error", "Original block position not found.")
+            return
+
+        try:
+            edited_text = self.shot_editor.get("1.0", "end")
+            if edited_text and not edited_text.endswith('\n'):
+                edited_text += '\n'
+
+            start, end = self.shot_ranges[key]
+
+            new_lines = (
+                self.original_lines[:start] +
+                [edited_text] +
+                self.original_lines[end:]
+            )
+
+            with open(self.config_path, 'w', encoding='utf-8', newline='') as f:
+                f.writelines(new_lines)
+
+            self.original_lines = new_lines
+
+            # Silent success - no popup
+            self.refresh_config()
+
+        except Exception as e:
+            messagebox.showerror("Save Failed", str(e))
+
+    def create_new_shot(self):
+        if not self.selected_seq:
+            messagebox.showerror("Error", "Select a sequence first!")
+            return
+
+        project = self.config['globals']['PROJECT']
+        current_shot_data = {}
+        if self.selected_shot:
+            current_shot_data = self.config[project][self.selected_seq].get(self.selected_shot, {})
+
+        # Find highest numeric SHOT value in this sequence
+        max_num = 0
+        for shot_id in self.config[project].get(self.selected_seq, {}):
+            try:
+                num = int(shot_id)
+                max_num = max(max_num, num)
+            except ValueError:
+                pass
+        next_num = max_num + 1
+        new_shot_id = f"{next_num:04d}"
+
+        # Guess next NAME
+        new_name = f"sh{next_num:04d}"
+        if self.selected_shot and 'NAME' in current_shot_data.get('', {}):
+            last_name = current_shot_data['']['NAME']
+            if re.match(r'^[A-Za-z](\d{3})C(\d{3})$', last_name):
+                prefix, num_str, c_part = last_name[0], last_name[1:4], last_name[4:]
+                new_num = int(num_str) + 1
+                new_name = f"{prefix}{new_num:03d}{c_part}"
+            elif re.match(r'^sh\d{4}$', last_name):
+                num = int(last_name[2:]) + 1
+                new_name = f"sh{num:04d}"
+
+        # Build new block by copying most lines from current shot (if any)
+        new_block_lines = ["!---------\n", f"SEQUENCE={self.selected_seq}\n", f"SHOT={new_shot_id}\n", f"NAME={new_name}\n"]
+
+        if self.selected_shot:
+            # Copy most settings from current shot (exclude SHOT/NAME/SEQUENCE)
+            current_key = (self.selected_seq, self.selected_shot)
+            if current_key in self.shot_ranges:
+                start, end = self.shot_ranges[current_key]
+                current_block = self.original_lines[start:end]
+                copying = False
+                for line in current_block:
+                    s = line.strip()
+                    if s.startswith(('!---------', 'SEQUENCE=', 'SHOT=', 'NAME=')):
+                        continue
+                    if s:  # skip empty lines at start if desired
+                        new_block_lines.append(line)
+        else:
+            # Minimal default if no current shot selected
+            new_block_lines.extend([
+                "JOBTYPE=ct_flux_t2i\n",
+                "POSITIVE_PROMPT=New shot prompt here\n",
+                "NEGATIVE_PROMPT=blurry, low quality\n",
+                "ENVIRONMENT_PROMPT=Describe environment here\n",
+                "\n"
+            ])
+
+        try:
+            with open(self.config_path, 'a', encoding='utf-8', newline='') as f:
+                f.writelines(new_block_lines)
+
+            self.refresh_config()
+
+            # Auto-select new shot if possible
+            if new_shot_id in self.shots.get(self.selected_seq, []):
+                self.shot_var.set(new_shot_id)
+                self.on_shot_change(new_shot_id)
+
+            # Silent success - no popup
+
+        except Exception as e:
+            messagebox.showerror("Failed to Create Shot", str(e))
 
     def run_all_threaded(self):
-        """Run all in thread (non-blocking)."""
         if not self.config:
-            messagebox.showerror("Error", "Load a config first!")
+            messagebox.showerror("Error", "Load config first!")
             return
-        selected_jt = self.get_selected_jobtype()
-        if not selected_jt:
-            messagebox.showerror("Error", "Select a job type!")
+        jt = self.get_selected_jobtype()
+        if not jt:
+            messagebox.showerror("Error", "Select job type!")
             return
-        allowed = [selected_jt]
-        threading.Thread(target=self._run_all, args=(allowed,), daemon=True).start()
+        threading.Thread(target=self._run_all, args=([jt],), daemon=True).start()
 
     def _run_all(self, allowed):
         try:
-            # Call with filter (slimmed launcher handles JSON/send)
             run_all(self.config_path, allowed_jobtypes=allowed)
-            # Success popup removed
         except Exception as e:
-            messagebox.showerror("Execution Error", f"Failed to queue jobs:\n{str(e)}")
-            print(f"Debug - Run all error: {e}", file=sys.stderr)
+            messagebox.showerror("Run Error", str(e))
 
     def run_selected_threaded(self):
-        """Run selected in thread."""
         if not self.selected_seq or not self.selected_shot:
-            messagebox.showerror("Error", "Select sequence and shot first!")
+            messagebox.showerror("Error", "Select sequence + shot!")
             return
-        selected_jt = self.get_selected_jobtype()
-        if not selected_jt:
-            messagebox.showerror("Error", "Select a job type!")
+        jt = self.get_selected_jobtype()
+        if not jt:
+            messagebox.showerror("Error", "Select job type!")
             return
-        allowed = [selected_jt]
-        threading.Thread(target=self._run_selected, args=(allowed,), daemon=True).start()
+        threading.Thread(target=self._run_selected, args=([jt],), daemon=True).start()
 
     def _run_selected(self, allowed):
         try:
-            # Call with targets and filter (slimmed)
             run_storytools_execution(
                 config=self.config,
                 allowed_jobtypes=allowed,
                 target_sequence=self.selected_seq,
                 target_shot=self.selected_shot
             )
-            # Success popup removed
         except Exception as e:
-            messagebox.showerror("Execution Error", f"Failed to queue jobs:\n{str(e)}")
-            print(f"Debug - Run selected error: {e}", file=sys.stderr)
+            messagebox.showerror("Run Error", str(e))
 
 
 if __name__ == "__main__":
-    # FIXED: Use TkinterDnD.Tk as root for DnD, then CTkFrame for widgets
     root = TkinterDnD.Tk()
     root.title("ct_storytools")
-    root.configure(bg="#2b2b2b")  # Dark background to match theme
+    root.configure(bg="#2b2b2b")
     app = StorytoolsGUI(root)
     root.mainloop()
