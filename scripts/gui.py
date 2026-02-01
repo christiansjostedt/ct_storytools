@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # GUI for CT Storytools Launcher + Shot Text Editor (original text format)
-# Requirements: pip install customtkinter tkinterdnd2 requests
+# Requirements: pip install customtkinter tkinterdnd2 requests pillow
 import customtkinter as ctk
 from tkinter import messagebox, filedialog, Entry
 from tkinterdnd2 import TkinterDnD, DND_FILES
@@ -8,6 +8,8 @@ import threading
 import sys
 import os
 import re
+import json
+from PIL import Image
 
 # Import your modules (adjust if needed)
 import parser  # Your config_parser.py
@@ -79,14 +81,18 @@ class StorytoolsGUI:
 
         ctk.CTkLabel(self.main_frame, text="Shot Editor (original text format)").pack(anchor="w", padx=20, pady=(10,0))
         self.editor_info = ctk.CTkLabel(self.main_frame,
-            text="Only lines for the selected shot (including !---------) • globals excluded",
+            text="Only lines for the selected shot • globals excluded\n\nDrop liked Flux PNG here to read & set SEED_START=",
             font=ctk.CTkFont(size=11, slant="italic"), text_color="gray")
         self.editor_info.pack(anchor="w", padx=20, pady=(2,6))
 
         self.shot_editor = ctk.CTkTextbox(self.main_frame, height=260, width=560, wrap="none")
         self.shot_editor.pack(pady=6, padx=20, fill="both")
 
-        # Buttons row: Save + New Shot
+        # Enable drag & drop on the textbox
+        self.shot_editor.drop_target_register(DND_FILES)
+        self.shot_editor.dnd_bind('<<Drop>>', self.on_image_drop)
+
+        # Buttons row
         edit_btn_frame = ctk.CTkFrame(self.main_frame)
         edit_btn_frame.pack(pady=10, padx=20, fill="x")
         self.save_btn = ctk.CTkButton(edit_btn_frame, text="Save Shot Changes", command=self.save_changes)
@@ -100,6 +106,74 @@ class StorytoolsGUI:
                       fg_color="green").pack(pady=5, side="left", expand=True)
         ctk.CTkButton(btn_frame, text="Run Selected", command=self.run_selected_threaded,
                       fg_color="orange").pack(pady=5, side="right", expand=True)
+
+    def on_image_drop(self, event):
+        if not self.selected_seq or not self.selected_shot:
+            messagebox.showwarning("No shot selected", "Select a sequence and shot first.")
+            return
+
+        data = event.data.strip()
+        filepath = data[1:-1] if data.startswith('{') and data.endswith('}') else data
+
+        if not os.path.isfile(filepath) or not filepath.lower().endswith('.png'):
+            return
+
+        try:
+            with Image.open(filepath) as img:
+                seed_str = None
+
+                # Try to extract from ComfyUI-style 'prompt' JSON (most reliable for your case)
+                if img.info and 'prompt' in img.info:
+                    try:
+                        json_data = json.loads(img.info['prompt'])
+                        for node_id, node in json_data.items():
+                            if node.get('class_type') == 'KSampler':
+                                seed = node['inputs'].get('seed')
+                                if seed is not None:
+                                    seed_str = str(seed)
+                                    break
+                    except (json.JSONDecodeError, KeyError, TypeError):
+                        pass
+
+                # Fallback: look for any numeric seed-like value in any text chunk
+                if not seed_str and img.info:
+                    for value in img.info.values():
+                        if isinstance(value, str):
+                            m = re.search(r'\b\d{8,12}\b', value)
+                            if m:
+                                seed_str = m.group(0)
+                                break
+
+                if not seed_str:
+                    messagebox.showwarning("Seed not found", "No seed number found in metadata.")
+                    return
+
+                # Insert as SEED_START= (no extra comment line)
+                current_text = self.shot_editor.get("1.0", "end").rstrip()
+                lines = current_text.splitlines()
+
+                insert_pos = 0
+                for idx, line in enumerate(lines):
+                    s = line.strip()
+                    if s and not s.startswith(('#', '!')) and ('=' in s):
+                        insert_pos = idx + 1
+                        break
+
+                new_line = f"SEED_START={seed_str}"
+                new_lines = lines[:insert_pos] + [new_line] + lines[insert_pos:]
+                updated = "\n".join(new_lines) + "\n"
+
+                self.shot_editor.delete("1.0", "end")
+                self.shot_editor.insert("1.0", updated)
+
+                # Silent success - no popup, no comment in file
+
+        except Exception as e:
+            messagebox.showerror("Error reading image", f"Failed to read metadata:\n{str(e)}")
+
+    # ────────────────────────────────────────────────
+    # The rest of the code remains unchanged
+    # ────────────────────────────────────────────────
 
     def on_entry_focus_in(self, event):
         if self.path_entry.get() == "Drag/drop or browse config file here":
@@ -314,7 +388,6 @@ class StorytoolsGUI:
 
             self.original_lines = new_lines
 
-            # Silent success - no popup
             self.refresh_config()
 
         except Exception as e:
@@ -330,7 +403,6 @@ class StorytoolsGUI:
         if self.selected_shot:
             current_shot_data = self.config[project][self.selected_seq].get(self.selected_shot, {})
 
-        # Find highest numeric SHOT value in this sequence
         max_num = 0
         for shot_id in self.config[project].get(self.selected_seq, {}):
             try:
@@ -341,7 +413,6 @@ class StorytoolsGUI:
         next_num = max_num + 1
         new_shot_id = f"{next_num:04d}"
 
-        # Guess next NAME
         new_name = f"sh{next_num:04d}"
         if self.selected_shot and 'NAME' in current_shot_data.get('', {}):
             last_name = current_shot_data['']['NAME']
@@ -353,24 +424,20 @@ class StorytoolsGUI:
                 num = int(last_name[2:]) + 1
                 new_name = f"sh{num:04d}"
 
-        # Build new block by copying most lines from current shot (if any)
         new_block_lines = ["!---------\n", f"SEQUENCE={self.selected_seq}\n", f"SHOT={new_shot_id}\n", f"NAME={new_name}\n"]
 
         if self.selected_shot:
-            # Copy most settings from current shot (exclude SHOT/NAME/SEQUENCE)
             current_key = (self.selected_seq, self.selected_shot)
             if current_key in self.shot_ranges:
                 start, end = self.shot_ranges[current_key]
                 current_block = self.original_lines[start:end]
-                copying = False
                 for line in current_block:
                     s = line.strip()
                     if s.startswith(('!---------', 'SEQUENCE=', 'SHOT=', 'NAME=')):
                         continue
-                    if s:  # skip empty lines at start if desired
+                    if s:
                         new_block_lines.append(line)
         else:
-            # Minimal default if no current shot selected
             new_block_lines.extend([
                 "JOBTYPE=ct_flux_t2i\n",
                 "POSITIVE_PROMPT=New shot prompt here\n",
@@ -385,12 +452,9 @@ class StorytoolsGUI:
 
             self.refresh_config()
 
-            # Auto-select new shot if possible
             if new_shot_id in self.shots.get(self.selected_seq, []):
                 self.shot_var.set(new_shot_id)
                 self.on_shot_change(new_shot_id)
-
-            # Silent success - no popup
 
         except Exception as e:
             messagebox.showerror("Failed to Create Shot", str(e))
