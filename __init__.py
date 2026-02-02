@@ -36,10 +36,20 @@ try:
     NODE_DISPLAY_NAME_MAPPINGS["CTServersideExecution"] = "CT Serverside Execution"
     print("Registered: CTServersideExecution Node")
 except ImportError as e:
-    print(f"FS registration failed: {e}")
+    print(f"Serverside execution registration failed: {e}")
+
+# Qwen camera transform node
+try:
+    from .ct_qwen_cameratransform import QwenCameraTrigger
+    NODE_CLASS_MAPPINGS["QwenCameraTrigger"] = QwenCameraTrigger
+    NODE_DISPLAY_NAME_MAPPINGS["QwenCameraTrigger"] = "ct_qwen_cameratransform"
+    print("Registered: QwenCameraTrigger (qwen camera)")
+except ImportError as e:
+    print(f"Qwen camera transform registration failed: {e}")
 
 # Final debug
 total = len(NODE_CLASS_MAPPINGS)
 print(f"ct_storytools: Registered {total} nodes: {list(NODE_CLASS_MAPPINGS.keys())}")
+print("DEBUG: reached end of ct_storytools __init__.py")
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]

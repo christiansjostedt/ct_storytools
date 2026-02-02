@@ -54,7 +54,7 @@ class QwenCameraTrigger:
             if not json_file:
                 json_file = os.path.join(
                     os.path.dirname(os.path.dirname(__file__)),
-                    'ct_storytools', 'workflows', 'ct_qwen_base.json'
+                    'ct_storytools', 'workflows', 'ct_qwen_cameratransform_base.json'
                 )
 
             if not os.path.exists(json_file):
@@ -190,4 +190,4 @@ class QwenCameraTrigger:
 
 # Registration (used when the file is imported directly)
 NODE_CLASS_MAPPINGS = {"QwenCameraTrigger": QwenCameraTrigger}
-NODE_DISPLAY_NAME_MAPPINGS = {"QwenCameraTrigger": "ct_qwen_cameratransform"}
+NODE_DISPLAY_NAME_MAPPINGS = {"ct_qwen_cameratransform": "ct_qwen_cameratransform"}
