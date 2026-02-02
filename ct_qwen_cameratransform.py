@@ -19,7 +19,7 @@ class QwenCameraTrigger:
                     "default": "5angles"
                 }),
                 "host": ("STRING", {"default": "127.0.0.1:8188"}),
-                "input_dir": ("STRING", {"default": "output", "multiline": False}),  # changed to output
+                "input_dir": ("STRING", {"default": "output", "multiline": False}),
                 "project": ("STRING", {"default": "project"}),
                 "sequence": ("STRING", {"default": "seq"}),
                 "shot": ("STRING", {"default": "shot"}),
@@ -53,7 +53,7 @@ class QwenCameraTrigger:
         errors = []
 
         try:
-            # Normalize mode to avoid whitespace/case issues
+            # Normalize mode
             original_mode = mode
             mode = mode.strip().lower()
             if mode != original_mode:
@@ -136,9 +136,17 @@ class QwenCameraTrigger:
 
                     workflow = json.loads(json.dumps(base_workflow))
 
+                    # === OPTION B: Use absolute path for LoadImage ===
                     if "8" in workflow and workflow["8"].get("class_type") == "LoadImage":
-                        print("[QwenCam]     Setting LoadImage filename")
-                        workflow["8"]["inputs"]["image"] = filename
+                        abs_image_path = os.path.abspath(full_img_path)
+                        if not os.path.exists(abs_image_path):
+                            err_msg = f"Image file does NOT exist: {abs_image_path}"
+                            print(f"[QwenCam]     {err_msg}")
+                            errors.append(err_msg)
+                            debug.append(err_msg)
+                            continue  # skip this job
+                        print(f"[QwenCam]     Setting LoadImage → absolute path: {abs_image_path}")
+                        workflow["8"]["inputs"]["image"] = abs_image_path
 
                     if "4" in workflow and workflow["4"].get("class_type") == "QwenMultiangleCameraNode":
                         print("[QwenCam]     Setting camera parameters")
