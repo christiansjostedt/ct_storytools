@@ -19,7 +19,7 @@ class QwenCameraTrigger:
                     "default": "TT"
                 }),
                 "host": ("STRING", {"default": "127.0.0.1:8188"}),
-                "input_dir": ("STRING", {"default": "input", "multiline": False}),
+                "input_dir": ("STRING", {"default": "output", "multiline": False}),
                 "project": ("STRING", {"default": "project"}),
                 "sequence": ("STRING", {"default": "seq"}),
                 "shot": ("STRING", {"default": "shot"}),
