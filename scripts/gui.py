@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-# GUI for CT Storytools Launcher + Shot Text Editor (compact layout 2025)
-# Requirements: pip install customtkinter tkinterdnd2 requests pillow
+# GUI for CT Storytools Launcher + Shot Text Editor (compact layout 2025–2026)
+# Updated: QWEN_CAMERATRANSFORMATION_MODE is now GLOBAL (autosaves to globals section)
+
 import customtkinter as ctk
 from tkinter import messagebox, filedialog, Entry, simpledialog
 from tkinterdnd2 import TkinterDnD, DND_FILES
@@ -8,12 +9,10 @@ import threading
 import sys
 import os
 import re
-import json
 import shutil
-from PIL import Image
 
 import parser  # Your config_parser.py
-from launcher import run_all, run_storytools_execution  # Slimmed launcher
+from launcher import run_all, run_storytools_execution
 
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -34,10 +33,17 @@ class StorytoolsGUI:
         self.shots = {}
         self.selected_shot = None
         self.selected_jobtype = None
-        self.jobtypes = ['ct_flux_t2i', 'ct_wan2_5s', 'ct_qwen_i2i']
-        self.host_selections = {}  # jobtype → set of selected hosts
+        self.jobtypes = ['ct_flux_t2i', 'ct_wan2_5s', 'ct_qwen_i2i', 'ct_qwen_cameratransform']
+        self.host_selections = {}
         self.host_frame = None
         self.host_checkboxes = []
+
+        self.qwen_mode_var = ctk.StringVar(value="5angles")
+        self.qwen_modes = ["5angles", "10angles", "20angles", "FrontBackLeftRight", "TT"]  # fallback
+        self.qwen_mode_dropdown = None
+
+        # Debounce timer for autosave
+        self.autosave_timer = None
 
         self.main_frame = ctk.CTkFrame(root)
         self.main_frame.pack(fill="both", expand=True, padx=8, pady=8)
@@ -45,8 +51,11 @@ class StorytoolsGUI:
         self.create_widgets()
         self.bind_drop_target()
 
+        # Trace dropdown changes → trigger autosave
+        self.qwen_mode_var.trace_add("write", self.on_mode_change)
+
     def create_widgets(self):
-        # ── Top: Path + Browse ────────────────────────────────
+        # Top: Path + Browse
         path_frame = ctk.CTkFrame(self.main_frame)
         path_frame.pack(pady=(4,8), padx=4, fill="x")
 
@@ -67,29 +76,35 @@ class StorytoolsGUI:
                                           font=ctk.CTkFont(size=13, weight="bold"))
         self.project_label.pack(pady=(0,6))
 
-        # ── Sequence / Shot / JobType ─────────────────────────
-        row1 = ctk.CTkFrame(self.main_frame)
-        row1.pack(fill="x", pady=2)
+        # Controls row: Seq / Shot / Job / Mode
+        controls_row = ctk.CTkFrame(self.main_frame)
+        controls_row.pack(fill="x", pady=4)
 
-        ctk.CTkLabel(row1, text="Seq:", width=40, anchor="e").pack(side="left", padx=(4,2))
+        ctk.CTkLabel(controls_row, text="Seq:", width=40, anchor="e").pack(side="left", padx=(4,2))
         self.seq_var = ctk.StringVar(value="Select Sequence")
-        self.seq_dropdown = ctk.CTkOptionMenu(row1, variable=self.seq_var, width=140,
+        self.seq_dropdown = ctk.CTkOptionMenu(controls_row, variable=self.seq_var, width=140,
                                               values=["None"], command=self.on_seq_change)
         self.seq_dropdown.pack(side="left", padx=2)
 
-        ctk.CTkLabel(row1, text="Shot:", width=40, anchor="e").pack(side="left", padx=(12,2))
+        ctk.CTkLabel(controls_row, text="Shot:", width=40, anchor="e").pack(side="left", padx=(12,2))
         self.shot_var = ctk.StringVar(value="Select Shot")
-        self.shot_dropdown = ctk.CTkOptionMenu(row1, variable=self.shot_var, width=140,
+        self.shot_dropdown = ctk.CTkOptionMenu(controls_row, variable=self.shot_var, width=140,
                                                values=["None"], command=self.on_shot_change)
         self.shot_dropdown.pack(side="left", padx=2)
 
-        ctk.CTkLabel(row1, text="Job:", width=40, anchor="e").pack(side="left", padx=(12,2))
+        ctk.CTkLabel(controls_row, text="Job:", width=40, anchor="e").pack(side="left", padx=(12,2))
         self.jobtype_var = ctk.StringVar(value="Select Job")
-        self.jobtype_dropdown = ctk.CTkOptionMenu(row1, variable=self.jobtype_var, width=140,
+        self.jobtype_dropdown = ctk.CTkOptionMenu(controls_row, variable=self.jobtype_var, width=140,
                                                   values=["None"], command=self.on_jobtype_change)
         self.jobtype_dropdown.pack(side="left", padx=2)
 
-        # ── Hosts (compact horizontal) ────────────────────────
+        # Mode — right next to Job
+        ctk.CTkLabel(controls_row, text="Mode:", width=40, anchor="e").pack(side="left", padx=(20,2))
+        self.qwen_mode_dropdown = ctk.CTkOptionMenu(controls_row, variable=self.qwen_mode_var,
+                                                    values=self.qwen_modes, width=180)
+        self.qwen_mode_dropdown.pack_forget()
+
+        # Hosts
         host_label_frame = ctk.CTkFrame(self.main_frame)
         host_label_frame.pack(fill="x", pady=(4,2))
         ctk.CTkLabel(host_label_frame, text="Hosts:", font=("Segoe UI", 11)).pack(side="left", padx=4)
@@ -97,7 +112,7 @@ class StorytoolsGUI:
         self.host_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent")
         self.host_frame.pack(pady=(0,6), padx=4, fill="x")
 
-        # ── Editor section ────────────────────────────────────
+        # Editor
         ctk.CTkLabel(self.main_frame, text="Shot Editor", font=("Segoe UI", 13, "bold")).pack(anchor="w", padx=4, pady=(4,2))
 
         self.editor_info = ctk.CTkLabel(self.main_frame,
@@ -105,12 +120,12 @@ class StorytoolsGUI:
             font=ctk.CTkFont(size=10, slant="italic"), text_color="gray")
         self.editor_info.pack(anchor="w", padx=4, pady=(0,4))
 
-        self.shot_editor = ctk.CTkTextbox(self.main_frame, height=380, wrap="none", font=("Consolas", 12))
+        self.shot_editor = ctk.CTkTextbox(self.main_frame, height=340, wrap="none", font=("Consolas", 12))
         self.shot_editor.pack(pady=2, padx=4, fill="both", expand=True)
         self.shot_editor.drop_target_register(DND_FILES)
         self.shot_editor.dnd_bind('<<Drop>>', self.on_image_drop)
 
-        # ── Edit controls ─────────────────────────────────────
+        # Edit controls
         edit_row = ctk.CTkFrame(self.main_frame)
         edit_row.pack(pady=(6,4), padx=4, fill="x")
 
@@ -133,7 +148,7 @@ class StorytoolsGUI:
                                          fg_color="#2196F3")
         self.new_seq_btn.pack(side="left")
 
-        # ── Run buttons ───────────────────────────────────────
+        # Run buttons
         run_row = ctk.CTkFrame(self.main_frame)
         run_row.pack(pady=(4,8), padx=4, fill="x")
 
@@ -142,9 +157,126 @@ class StorytoolsGUI:
         ctk.CTkButton(run_row, text="Run Selected", command=self.run_selected_threaded,
                       fg_color="orange", width=140).pack(side="right", expand=True, fill="x", padx=(6,0))
 
-        # Keyboard shortcuts
-        self.root.bind('<Control-Left>',  lambda e: self.prev_shot())
+        self.root.bind('<Control-Left>', lambda e: self.prev_shot())
         self.root.bind('<Control-Right>', lambda e: self.next_shot())
+
+    def update_mode_visibility(self):
+        if self.selected_jobtype == 'ct_qwen_cameratransform':
+            self.qwen_mode_dropdown.pack(side="left", padx=2)
+            self.editor_info.configure(
+                text="Camera transform — Mode autosaves globally on change",
+                text_color="#81C784"
+            )
+            # Load global value from config (not from shot block)
+            if 'globals' in self.config and 'QWEN_CAMERATRANSFORMATION_MODE' in self.config['globals']:
+                val = self.config['globals']['QWEN_CAMERATRANSFORMATION_MODE'].strip()
+                if val in self.qwen_modes:
+                    self.qwen_mode_var.set(val)
+        else:
+            self.qwen_mode_dropdown.pack_forget()
+            self.editor_info.configure(
+                text="Drop liked Flux PNG here to set SEED_START • globals excluded",
+                text_color="gray"
+            )
+
+    def on_mode_change(self, *args):
+        """Triggered when dropdown value changes — debounce autosave to global section"""
+        if self.selected_jobtype != 'ct_qwen_cameratransform':
+            return
+
+        new_value = self.qwen_mode_var.get().strip()
+        if not new_value:
+            return
+
+        # Get current global value
+        current_value = None
+        if 'globals' in self.config and 'QWEN_CAMERATRANSFORMATION_MODE' in self.config['globals']:
+            current_value = self.config['globals']['QWEN_CAMERATRANSFORMATION_MODE'].strip()
+
+        if new_value != current_value:
+            if self.autosave_timer:
+                self.root.after_cancel(self.autosave_timer)
+            self.autosave_timer = self.root.after(100, lambda: self._autosave_global_mode(new_value))
+
+    def _autosave_global_mode(self, mode_value):
+        """Update QWEN_CAMERATRANSFORMATION_MODE in the global section and save file"""
+        try:
+            # Find the global section (before first !---------)
+            global_end = 0
+            for i, line in enumerate(self.original_lines):
+                if line.strip().startswith('!---------'):
+                    global_end = i
+                    break
+            else:
+                global_end = len(self.original_lines)
+
+            global_lines = self.original_lines[:global_end]
+            new_global_lines = []
+            mode_written = False
+            for line in global_lines:
+                stripped = line.strip()
+                if stripped.startswith("QWEN_CAMERATRANSFORMATION_MODE="):
+                    new_global_lines.append(f"QWEN_CAMERATRANSFORMATION_MODE={mode_value}\n")
+                    mode_written = True
+                else:
+                    new_global_lines.append(line)
+            if not mode_written:
+                # Insert after last non-empty global line
+                insert_pos = len(new_global_lines) - 1
+                while insert_pos >= 0 and not new_global_lines[insert_pos].strip():
+                    insert_pos -= 1
+                new_global_lines.insert(insert_pos + 1, f"QWEN_CAMERATRANSFORMATION_MODE={mode_value}\n")
+                new_global_lines.append("\n")  # ensure blank line
+
+            # Rebuild full file
+            new_file_lines = new_global_lines + self.original_lines[global_end:]
+            with open(self.config_path, 'w', encoding='utf-8', newline='') as f:
+                f.writelines(new_file_lines)
+
+            self.original_lines = new_file_lines
+
+            # Reload config to sync globals
+            self.config = parser.parse_config(self.config_path)
+
+            # Feedback
+            self.editor_info.configure(
+                text=f"Global mode autosaved: {mode_value}",
+                text_color="#4CAF50"
+            )
+            self.root.after(2000, lambda: self.update_mode_visibility())  # revert hint
+
+        except Exception as e:
+            print(f"Global autosave failed: {e}")
+            self.editor_info.configure(text=f"Autosave failed: {str(e)}", text_color="red")
+
+    def bind_drop_target(self):
+        self.path_entry.drop_target_register(DND_FILES)
+        self.path_entry.dnd_bind('<<Drop>>', self.on_drop)
+
+    def on_drop(self, event):
+        files = self.root.tk.splitlist(event.data)
+        if files:
+            self.path_entry.delete(0, "end")
+            self.path_entry.insert(0, files[0])
+            self.refresh_config()
+
+    def browse_file(self):
+        file = filedialog.askopenfilename(filetypes=[("Text files", "*.txt"), ("All files", "*.*")])
+        if file:
+            self.path_entry.delete(0, "end")
+            self.path_entry.insert(0, file)
+            self.refresh_config()
+
+    def on_entry_focus_in(self, event):
+        if self.path_entry.get() == "Drag file or click Browse":
+            self.path_entry.delete(0, 'end')
+
+    def on_entry_focus_out(self, event):
+        if not self.path_entry.get():
+            self.path_entry.insert(0, "Drag file or click Browse")
+
+    def on_image_drop(self, event):
+        pass  # placeholder
 
     def update_host_selection(self):
         for widget in self.host_frame.winfo_children():
@@ -178,11 +310,13 @@ class StorytoolsGUI:
             self.host_checkboxes.append((host, var))
 
     def _get_host_key_for_jobtype(self, jt):
-        return {
+        mapping = {
             'ct_flux_t2i': 'FLUX_HOST',
-            'ct_wan2_5s':  'WAN_HOST',
-            'ct_qwen_i2i': 'QWEN_HOST'
-        }.get(jt)
+            'ct_wan2_5s': 'WAN_HOST',
+            'ct_qwen_i2i': 'QWEN_HOST',
+            'ct_qwen_cameratransform': 'QWEN_HOST'
+        }
+        return mapping.get(jt)
 
     def on_host_toggle(self, host, is_selected):
         if self.selected_jobtype:
@@ -195,58 +329,45 @@ class StorytoolsGUI:
     def apply_host_restriction(self):
         if not self.selected_jobtype or not self.config_path:
             return None, None
-
         host_key = self._get_host_key_for_jobtype(self.selected_jobtype)
         if not host_key:
             return None, None
-
         selected_hosts = self.host_selections.get(self.selected_jobtype, set())
         if not selected_hosts:
             return None, None
-
         with open(self.config_path, 'r', encoding='utf-8') as f:
             lines = f.readlines()
-
         original_line = None
         line_idx = -1
         for i, line in enumerate(lines):
             stripped = line.strip()
-            if stripped.startswith(host_key + '=') or stripped.startswith('#' + host_key + '='):
+            if stripped.startswith(host_key + '=') or stripped.startswith(host_key + ' ='):
                 original_line = line.rstrip('\n')
                 line_idx = i
                 break
-
         if line_idx == -1:
             print(f"Warning: {host_key}= not found")
             return None, None
-
         new_value = ', '.join(sorted(selected_hosts))
         new_line = f"{host_key}={new_value}\n"
-
         backup_path = self.config_path + ".bak_host"
         shutil.copy2(self.config_path, backup_path)
-
         lines[line_idx] = new_line
         with open(self.config_path, 'w', encoding='utf-8', newline='') as f:
             f.writelines(lines)
-
         print(f"Restricted → {host_key}={new_value}")
         return original_line, line_idx
 
     def restore_original_hosts(self, original_line, line_idx):
         if original_line is None or line_idx is None or not self.config_path:
             return
-
         with open(self.config_path, 'r', encoding='utf-8') as f:
             lines = f.readlines()
-
         if 0 <= line_idx < len(lines):
             lines[line_idx] = original_line.rstrip('\n') + '\n'
-
-        with open(self.config_path, 'w', encoding='utf-8', newline='') as f:
-            f.writelines(lines)
-
-        print("Restored hosts")
+            with open(self.config_path, 'w', encoding='utf-8', newline='') as f:
+                f.writelines(lines)
+            print("Restored hosts")
         backup = self.config_path + ".bak_host"
         if os.path.exists(backup):
             try:
@@ -256,33 +377,43 @@ class StorytoolsGUI:
 
     def refresh_config(self):
         path = self.path_entry.get().strip()
-        if path in ("", "Drag/drop or browse config file here") or not os.path.exists(path):
+        if path in ("", "Drag file or click Browse") or not os.path.exists(path):
             messagebox.showerror("Error", "Invalid config path!")
             return
-
         try:
             with open(path, encoding='utf-8') as f:
                 self.original_lines = f.readlines()
-
             self.config = parser.parse_config(path)
             self.config_path = path
 
+            # Load QWEN_CAMERATRANSFORMATION_MODES from globals if present
+            if 'globals' in self.config and 'QWEN_CAMERATRANSFORMATION_MODES' in self.config['globals']:
+                modes_str = self.config['globals']['QWEN_CAMERATRANSFORMATION_MODES'].strip()
+                parsed_modes = [m.strip() for m in modes_str.split(',') if m.strip()]
+                if parsed_modes:
+                    self.qwen_modes = parsed_modes
+                    if self.qwen_mode_dropdown:
+                        self.qwen_mode_dropdown.configure(values=self.qwen_modes)
+
+            # Load global QWEN_CAMERATRANSFORMATION_MODE if present
+            if 'globals' in self.config and 'QWEN_CAMERATRANSFORMATION_MODE' in self.config['globals']:
+                default_mode = self.config['globals']['QWEN_CAMERATRANSFORMATION_MODE'].strip()
+                if default_mode in self.qwen_modes:
+                    self.qwen_mode_var.set(default_mode)
+
             project = self.config['globals'].get('PROJECT', 'Unknown')
             self.project_label.configure(text=f"Project: {project}")
-
             self.sequences = sorted(self.config.get(project, {}).keys())
             self.seq_dropdown.configure(values=self.sequences or ["None"])
             self.shot_ranges.clear()
             self._scan_shot_ranges()
-
             if self.sequences:
                 self.seq_var.set(self.selected_seq if self.selected_seq in self.sequences else self.sequences[0])
                 self.on_seq_change(self.seq_var.get())
             else:
                 self._clear_dropdowns()
-
             self.update_host_selection()
-
+            self.update_mode_visibility()
         except Exception as e:
             messagebox.showerror("Parse Error", f"Failed to parse:\n{str(e)}")
             print(f"Parse error: {e}", file=sys.stderr)
@@ -295,7 +426,6 @@ class StorytoolsGUI:
         if not jt:
             messagebox.showerror("Error", "Select job type!")
             return
-
         threading.Thread(target=self._run_with_host_control, args=(run_all, [jt], None, None), daemon=True).start()
 
     def run_selected_threaded(self):
@@ -306,7 +436,6 @@ class StorytoolsGUI:
         if not jt:
             messagebox.showerror("Error", "Select job type!")
             return
-
         threading.Thread(target=self._run_with_host_control,
                          args=(run_storytools_execution, [jt], self.selected_seq, self.selected_shot),
                          daemon=True).start()
@@ -317,7 +446,6 @@ class StorytoolsGUI:
         try:
             original_line, line_idx = self.apply_host_restriction()
             self.config = parser.parse_config(self.config_path)
-
             if target_seq and target_shot:
                 runner_func(
                     config=self.config,
@@ -327,7 +455,6 @@ class StorytoolsGUI:
                 )
             else:
                 runner_func(self.config_path, allowed_jobtypes=allowed)
-
         except Exception as e:
             messagebox.showerror("Run Error", str(e))
         finally:
@@ -362,32 +489,6 @@ class StorytoolsGUI:
         except ValueError:
             pass
 
-    def on_entry_focus_in(self, event):
-        if self.path_entry.get() == "Drag/drop or browse config file here":
-            self.path_entry.delete(0, 'end')
-
-    def on_entry_focus_out(self, event):
-        if not self.path_entry.get():
-            self.path_entry.insert(0, "Drag/drop or browse config file here")
-
-    def bind_drop_target(self):
-        self.path_entry.drop_target_register(DND_FILES)
-        self.path_entry.dnd_bind('<<Drop>>', self.on_drop)
-
-    def on_drop(self, event):
-        files = self.root.tk.splitlist(event.data)
-        if files:
-            self.path_entry.delete(0, "end")
-            self.path_entry.insert(0, files[0])
-            self.refresh_config()
-
-    def browse_file(self):
-        file = filedialog.askopenfilename(filetypes=[("Text files", "*.txt"), ("All files", "*.*")])
-        if file:
-            self.path_entry.delete(0, "end")
-            self.path_entry.insert(0, file)
-            self.refresh_config()
-
     def on_seq_change(self, selection):
         self.selected_seq = None if selection == "Select Sequence" else selection
         if not self.selected_seq:
@@ -400,6 +501,7 @@ class StorytoolsGUI:
             self.prev_shot_btn.configure(state="disabled")
             self.next_shot_btn.configure(state="disabled")
             self.update_host_selection()
+            self.update_mode_visibility()
             return
 
         project = self.config['globals'].get('PROJECT')
@@ -421,6 +523,7 @@ class StorytoolsGUI:
             self.selected_jobtype = None
             self.shot_editor.delete("1.0", "end")
             self.update_host_selection()
+            self.update_mode_visibility()
 
     def on_shot_change(self, selection):
         self.selected_shot = None if selection == "Select Shot" else selection
@@ -429,6 +532,7 @@ class StorytoolsGUI:
             self.jobtype_var.set("Select Job")
             self.selected_jobtype = None
             self.shot_editor.delete("1.0", "end")
+            self.update_mode_visibility()
             self.update_host_selection()
             return
 
@@ -446,10 +550,11 @@ class StorytoolsGUI:
         self.jobtype_dropdown.configure(values=avail_list)
 
         if avail_list != ["None"]:
-            self.jobtype_var.set(self.selected_jobtype if self.selected_jobtype in avail_list else avail_list[0])
-            self.selected_jobtype = self.jobtype_var.get()
+            jt = self.selected_jobtype if self.selected_jobtype in avail_list else avail_list[0]
+            self.jobtype_var.set(jt)
+            self.selected_jobtype = jt
         else:
-            self.jobtype_var.set("Select Job")
+            self.jobtype_var.set("None")
             self.selected_jobtype = None
 
         key = (self.selected_seq, self.selected_shot)
@@ -462,15 +567,17 @@ class StorytoolsGUI:
             self.shot_editor.delete("1.0", "end")
             self.shot_editor.insert("1.0", f"# Could not locate block for shot '{self.selected_shot}'\n")
 
+        self.update_mode_visibility()
         self.update_host_selection()
 
     def on_jobtype_change(self, selection):
-        self.selected_jobtype = None if selection == "Select Job Type" else selection
+        self.selected_jobtype = None if selection in ("Select Job", "None") else selection
+        self.update_mode_visibility()
         self.update_host_selection()
 
     def get_selected_jobtype(self):
         jt = self.selected_jobtype
-        return jt if jt and jt != "Select Job Type" else None
+        return jt if jt and jt != "Select Job" else None
 
     def save_changes(self):
         if not self.selected_seq or not self.selected_shot or not self.original_lines:
@@ -568,15 +675,13 @@ class StorytoolsGUI:
         except Exception as e:
             messagebox.showerror("Failed to Create Sequence", str(e))
 
-    def on_image_drop(self, event):
-        pass  # placeholder
-
     def _clear_dropdowns(self):
         self.seq_var.set("Select Sequence")
         self.shot_var.set("Select Shot")
         self.jobtype_var.set("Select Job")
         self.selected_seq = self.selected_shot = self.selected_jobtype = None
         self.shot_editor.delete("1.0", "end")
+        self.update_mode_visibility()
         self.update_host_selection()
 
     def _scan_shot_ranges(self):
@@ -621,6 +726,6 @@ if __name__ == "__main__":
     root = TkinterDnD.Tk()
     root.title("ct_storytools")
     root.configure(bg="#2b2b2b")
-    root.geometry("640x740")  # reasonable starting size for compact layout
+    root.geometry("720x740")
     app = StorytoolsGUI(root)
     root.mainloop()

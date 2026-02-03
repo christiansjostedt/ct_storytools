@@ -135,6 +135,7 @@ def parse_config(file_path: str) -> dict:
     g['FLUX_HOSTS']  = split_hosts(g.get('FLUX_HOST', ''))
     g['WAN_HOSTS']   = split_hosts(g.get('WAN_HOST',  ''))
     g['QWEN_HOSTS']  = split_hosts(g.get('QWEN_HOST', ''))
+    g['QWEN_MODE']   = g.get('QWEN_MODE', '5angles')
     # Keep old HOST as ultimate fallback
     g['FALLBACK_HOST'] = g.get('HOST', '127.0.0.1:8188')
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # Portable Launcher via ComfyUI API
 # Updated: support FLUX_HOSTS, WAN_HOSTS, QWEN_HOSTS → round-robin per job type
+# Added: support for ct_qwen_cameratransform using real QwenCameraTrigger node
 
 import json
 import os
@@ -18,6 +19,7 @@ jobtype_to_json = {
     'ct_flux_t2i': os.path.join(WORKFLOWS_DIR, 'ct_flux_t2i_node.json'),
     'ct_wan2_5s':  os.path.join(WORKFLOWS_DIR, 'ct_wan2_5s_node.json'),
     'ct_qwen_i2i': os.path.join(WORKFLOWS_DIR, 'ct_qwen_i2i_base.json'),
+    'ct_qwen_cameratransform': os.path.join(WORKFLOWS_DIR, 'ct_qwen_cameratransform_node.json'),
 }
 
 # Round-robin queues per job family
@@ -65,11 +67,12 @@ def get_next_host(jobtype: str) -> str:
         print(f"→ Using WAN host: {host}")
         return host
 
-    if 'qwen' in jt_lower and qwen_host_queue and len(qwen_host_queue) > 0:
-        host = qwen_host_queue.popleft()
-        qwen_host_queue.append(host)
-        print(f"→ Using QWEN host: {host}")
-        return host
+    if 'qwen' in jt_lower or 'cameratransform' in jt_lower:
+        if qwen_host_queue and len(qwen_host_queue) > 0:
+            host = qwen_host_queue.popleft()
+            qwen_host_queue.append(host)
+            print(f"→ Using QWEN host: {host}")
+            return host
 
     # fallback
     print(f"→ Using fallback host: {fallback_host}")
@@ -84,7 +87,7 @@ def load_and_modify_workflow(base_path: str, job_data: dict, seed_start: int = 0
         loaded_data = json.load(f)
 
     payload_str = json.dumps(loaded_data)
-    # Cache-bust
+    # Cache-bust (even though this workflow doesn't use REPLACETEXT, kept for consistency)
     cache_buster = f" [ts:{int(time.time()*1000)}]"
     job_data['workflow_json'] += cache_buster
 
@@ -119,7 +122,7 @@ def load_and_modify_workflow(base_path: str, job_data: dict, seed_start: int = 0
 
         inputs = flux_node.setdefault("inputs", {})
         inputs["workflow_json"] = job_data['workflow_json']
-        inputs["host"]          = "127.0.0.1:8188"   # local inside container
+        inputs["host"]          = "127.0.0.1:8188"
         inputs["width"]         = width
         inputs["height"]        = height
         inputs["json_file"]     = ""
@@ -151,8 +154,28 @@ def load_and_modify_workflow(base_path: str, job_data: dict, seed_start: int = 0
 
         prompt_dict["1"]["inputs"] = inputs
 
+    elif 'qwen_cameratransform' in jt.lower():
+        trigger_node = prompt_dict.get("1", {})
+        if not trigger_node or trigger_node.get("class_type") != "QwenCameraTrigger":
+            raise ValueError("QwenCameraTrigger node (id=1) not found or wrong class_type")
+
+        inputs = trigger_node.setdefault("inputs", {})
+
+        inputs["mode"]       = job_data['shot_data'].get('QWEN_CAMERATRANSFORMATION_MODE',  # ← changed here
+                                                        job_data['globals'].get('QWEN_CAMERATRANSFORMATION_MODE', 'FrontBackLeftRight'))
+        inputs["host"]       = "127.0.0.1:8188"           # internal ComfyUI address
+        inputs["input_dir"]  = "output"                   # as in your example
+        inputs["project"]    = project
+        inputs["sequence"]   = sequence
+        inputs["shot"]       = shot_id
+        inputs["name"]       = name
+        inputs["json_file"]  = ""
+        inputs["seed_base"]  = job_data['seed_start']     # reusing the seed logic
+
+        prompt_dict["1"]["inputs"] = inputs
+
     else:
-        # generic fallback (includes qwen if no special node)
+        # generic fallback (includes ct_qwen_i2i etc.)
         for nid, node in prompt_dict.items():
             cls = node.get("class_type", "")
             if cls in ["PrimitiveInt", "Int"] and "value" in node["inputs"]:
@@ -205,7 +228,7 @@ def collect_jobs(config, allowed_jobtypes=None, target_project=None, target_sequ
 
     jobs = []
 
-    known_jobtypes = ['ct_flux_t2i', 'ct_wan2_5s', 'ct_qwen_i2i']
+    known_jobtypes = ['ct_flux_t2i', 'ct_wan2_5s', 'ct_qwen_i2i', 'ct_qwen_cameratransform']
 
     for jt in known_jobtypes:
         if allowed_jobtypes and jt not in allowed_jobtypes:
@@ -228,17 +251,19 @@ def collect_jobs(config, allowed_jobtypes=None, target_project=None, target_sequ
                     if jt not in jobtypes_list:
                         continue
 
-                    # Build prompt
-                    prompt_parts = []
-                    if pos := shot_data.get('POSITIVE_PROMPT', '').strip():
-                        prompt_parts.append(pos)
-                    if env := shot_data.get('ENVIRONMENT_PROMPT', '').strip():
-                        prompt_parts.append(env)
-                    if style := globals_data.get('GRAPHICAL_STYLE', '').strip():
-                        prompt_parts.append(style)
+                    # Build prompt — only for jobs that need text conditioning
+                    workflow_json = ""
+                    if jt not in ['ct_qwen_cameratransform']:
+                        prompt_parts = []
+                        if pos := shot_data.get('POSITIVE_PROMPT', '').strip():
+                            prompt_parts.append(pos)
+                        if env := shot_data.get('ENVIRONMENT_PROMPT', '').strip():
+                            prompt_parts.append(env)
+                        if style := globals_data.get('GRAPHICAL_STYLE', '').strip():
+                            prompt_parts.append(style)
+                        workflow_json = ", ".join(prompt_parts).strip()
 
-                    workflow_json = ", ".join(prompt_parts).strip()
-                    workflow_json_escaped = json.dumps(workflow_json)[1:-1]
+                    workflow_json_escaped = json.dumps(workflow_json)[1:-1] if workflow_json else ""
 
                     width  = int(shot_data.get('WIDTH',  globals_data.get('WIDTH',  1024)))
                     height = int(shot_data.get('HEIGHT', globals_data.get('HEIGHT', 1024)))
