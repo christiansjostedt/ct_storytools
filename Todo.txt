@@ -1,8 +1,20 @@
 ToDO:
 
+update parser and launcher so we can modify image prompt and video prompt separately, it will help with story telling
+
+update ct_qwen_cameratransform to output images to subfolders
+refine the ct_qwen_cameratransform angles
+ct_qwen_cameratransform add mode for FrontTopLeftRight
+
+workflow for taking FrontTopLeftRight and making an animated TT
+workflow for changing the background of a shot
+workflow for generating a 360 hdri of an input
+
+qwen camerasheet
+
+
+* update gui to have checkboxes for the available HOSTS to use, make them update depending on the workflow as well.
 * fluxgeneration works as it should, creates folders and dosnt fail because of comfyui cache except
-
 * wan generation works.
-
-* Git install doesnt work since the repo now has a different name and the paths gets messed up, need to fix
+* Git install works
 -------------------------------

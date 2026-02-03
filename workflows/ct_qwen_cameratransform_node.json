@@ -1,0 +1,32 @@
+{
+  "1": {
+    "inputs": {
+      "mode": "FrontBackLeftRight",
+      "host": "127.0.0.1:8188",
+      "input_dir": "output",
+      "project": "project",
+      "sequence": "seq",
+      "shot": "shot",
+      "name": "b",
+      "json_file": "",
+      "seed_base": 123456789
+    },
+    "class_type": "QwenCameraTrigger",
+    "_meta": {
+      "title": "ct_qwen_cameratransform"
+    }
+  },
+  "2": {
+    "inputs": {
+      "mode": "raw value",
+      "input": [
+        "1",
+        0
+      ]
+    },
+    "class_type": "DisplayAny",
+    "_meta": {
+      "title": "🔧 Display Any"
+    }
+  }
+}
