@@ -2,19 +2,40 @@
 PROJECT=Teapot
 WIDTH=1280
 HEIGHT=720
-GRAPHICAL_STYLE=Realistic, muted colors, photo, dslr, highest quality, cinematic, professional lighting, anamorphic lense, halation
+GRAPHICAL_STYLE=Realistic, muted colors, photo, dslr, highest quality, cinematic, professional lighting, anamorphic lense, halation, 16_anam0rph1c
+NEGATIVE_PROMPT=cartoon, text, low quality, deformed limbs, bad anatomy, phantom limbs
 
 DEBUG_MODE=0
-HOST=172.16.1.12:8188
-SEED_START=837959500944242
+FLUX_HOST=172.16.1.12:8188, 192.168.20.2:8188
+WAN_HOST=172.16.1.12:8188
+QWEN_HOST=172.16.1.12:8188
+SEED_START=483647
 FLUX_CFG=1
-FLUX_steps=30
-FLUX_ITERATIONS=3
+FLUX_steps=20
+FLUX_ITERATIONS=1
 FLUX_DENOISE=1
+FLUX_LORA1=Flux.1_Dev_16_anam0rph1c_v01.safetensors
+FLUX_LORA1_STRENGTH=1.5
+FLUX_LORA2=
+FLUX_LORA2_STRENGTH=
+FLUX_LORA3=
+FLUX_LORA3_STRENGTH=
+FLUX_LORA4=
+FLUX_LORA4_STRENGTH=
+FLUX_LORA5=
+FLUX_LORA5_STRENGTH=
+FLUX_LORA6=
+FLUX_LORA6_STRENGTH=
+FLUX_LORA7=
+FLUX_LORA7_STRENGTH=
+FLUX_LORA8=
+FLUX_LORA8_STRENGTH=
+
 WAN_CFG=1
 WAN_STEPS=4
 
-GENERATE_QWEN_ANGLES=3
+QWEN_CAMERATRANSFORMATION_MODES: 5angles,10angles,20angles,FrontBackLeftRight,TT
+QWEN_CAMERATRANSFORMATION_MODE=FrontBackLeftRight
 
 AUTO_CLEANUP=0
 
@@ -26,44 +47,20 @@ A teapot
 
 
 #WORKFLOWS AVAILABLE
-#ct_flux_t2i,ct_wan2_5s
+JOBTYPE=ct_flux_t2i,ct_wan2_5s,ct_qwen_cameratransform
 
 !---------
 SEQUENCE=Teaser
 SHOT=0010
-NAME=A001C001
-JOBTYPE=ct_flux_t2i, ct_wan2_5s
-LORAS=
-FLUX_steps=20
-FLUX_CFG=1
-FLUX_ITERATIONS=1
+NAME=sh0010
 
-NEGATIVE_PROMPT=cartoon, text, low quality, deformed limbs, bad anatomy, phantom limbs
 AUDIO_PROMPT=
 ENVIRONMENT_PROMPT=The environment is a A hyper-realistic, cinematic wide-angle photograph of jagged black volcanic rocks at the edge of a vast, stormy Pacific Ocean at dawn, evoking the raw isolation and primal fury of the wilderness in 'Into the Wild' fused with the relentless pounding waves of 'Cast Away'. Turbulent turquoise waves crash in slow-motion foam against the shore, sending sprays of mist high into the air, while the horizon stretches infinitely under a bruised sky of deep indigo and slate gray, pierced by subtle golden rays from the rising sun filtering through low-hanging fog, casting long ethereal shadows across the desolate, mist-shrouded coastline littered with twisted driftwood and weathered seashells. 
 
+IMGGEN_PROMPT=a long lense shot.
 
-POSITIVE_PROMPT=a long lense shot.
+ACTION_PROMPT=
 
-
-
-
-!---------
-SEQUENCE=Teaser
-SHOT=0020
-NAME=A001C001
-JOBTYPE=ct_flux_t2i, ct_wan2_5s
-LORAS=
-FLUX_steps=20
-FLUX_CFG=1
-FLUX_ITERATIONS=1
-
-NEGATIVE_PROMPT=cartoon, text, low quality, deformed limbs, bad anatomy, phantom limbs
-AUDIO_PROMPT=
-ENVIRONMENT_PROMPT=The environment is a A hyper-realistic, cinematic wide-angle photograph of jagged black volcanic rocks at the edge of a vast, stormy Pacific Ocean at dawn, evoking the raw isolation and primal fury of the wilderness in 'Into the Wild' fused with the relentless pounding waves of 'Cast Away'. Turbulent turquoise waves crash in slow-motion foam against the shore, sending sprays of mist high into the air, while the horizon stretches infinitely under a bruised sky of deep indigo and slate gray, pierced by subtle golden rays from the rising sun filtering through low-hanging fog, casting long ethereal shadows across the desolate, mist-shrouded coastline littered with twisted driftwood and weathered seashells. 
-
-
-POSITIVE_PROMPT=a wide angle shot of a landscape
-
+POSITIVE_PROMPT=a green teapot on a grass lawn
 
 

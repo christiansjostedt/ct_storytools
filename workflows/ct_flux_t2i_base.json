@@ -30,22 +30,6 @@
       "title": "DualCLIPLoader"
     }
   },
-  "7": {
-    "inputs": {
-      "upscale_model": [
-        "8",
-        0
-      ],
-      "image": [
-        "9",
-        0
-      ]
-    },
-    "class_type": "ImageUpscaleWithModel",
-    "_meta": {
-      "title": "Upscale Image (using Model)"
-    }
-  },
   "8": {
     "inputs": {
       "model_name": "4x_NMKD-Superscale-SP_178000_G.pth"
@@ -115,14 +99,14 @@
   },
   "13": {
     "inputs": {
-      "seed": 837959500944245,
+      "seed": 5000,
       "steps": 30,
       "cfg": 1,
       "sampler_name": "euler",
       "scheduler": "simple",
       "denoise": 1,
       "model": [
-        "4",
+        "55",
         0
       ],
       "positive": [
@@ -149,8 +133,8 @@
       "t5xxl": "REPLACETEXT",
       "guidance": 3.5,
       "clip": [
-        "6",
-        0
+        "55",
+        1
       ]
     },
     "class_type": "CLIPTextEncodeFlux",
@@ -188,7 +172,7 @@
       "divisible_by": 2,
       "device": "cpu",
       "image": [
-        "7",
+        "9",
         0
       ]
     },
@@ -242,11 +226,59 @@
       "dummy_path": "/ComfyUI/custom_nodes/ct_storytools/assets/dummy_image.png",
       "output_base": "/ComfyUI/output",
       "copied_dummies": "",
-      "timestamp": 1
+      "timestamp": 19
     },
     "class_type": "FSUtilsNode",
     "_meta": {
       "title": "CT FS Utils"
+    }
+  },
+  "54": {
+    "inputs": {
+      "lora_01": "None",
+      "strength_01": 1,
+      "lora_02": "None",
+      "strength_02": 1,
+      "lora_03": "None",
+      "strength_03": 1,
+      "lora_04": "None",
+      "strength_04": 1,
+      "model": [
+        "4",
+        0
+      ],
+      "clip": [
+        "6",
+        0
+      ]
+    },
+    "class_type": "Lora Loader Stack (rgthree)",
+    "_meta": {
+      "title": "Lora Loader Stack 1"
+    }
+  },
+  "55": {
+    "inputs": {
+      "lora_01": "None",
+      "strength_01": 1,
+      "lora_02": "None",
+      "strength_02": 1,
+      "lora_03": "None",
+      "strength_03": 1,
+      "lora_04": "None",
+      "strength_04": 1,
+      "model": [
+        "54",
+        0
+      ],
+      "clip": [
+        "54",
+        1
+      ]
+    },
+    "class_type": "Lora Loader Stack (rgthree)",
+    "_meta": {
+      "title": "Lora Loader Stack 2"
     }
   }
 }

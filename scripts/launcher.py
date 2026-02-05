@@ -2,6 +2,7 @@
 # Portable Launcher via ComfyUI API
 # Updated: support FLUX_HOSTS, WAN_HOSTS, QWEN_HOSTS → round-robin per job type
 # Added: support for ct_qwen_cameratransform using real QwenCameraTrigger node
+# Updated 2025/2026: LoRAs now passed via WorkflowTrigger inputs instead of patching base workflow
 
 import json
 import os
@@ -87,7 +88,7 @@ def load_and_modify_workflow(base_path: str, job_data: dict, seed_start: int = 0
         loaded_data = json.load(f)
 
     payload_str = json.dumps(loaded_data)
-    # Cache-bust (even though this workflow doesn't use REPLACETEXT, kept for consistency)
+    # Cache-bust
     cache_buster = f" [ts:{int(time.time()*1000)}]"
     job_data['workflow_json'] += cache_buster
 
@@ -110,9 +111,6 @@ def load_and_modify_workflow(base_path: str, job_data: dict, seed_start: int = 0
     num_jobs   = job_data['num_jobs']
     jt         = job_data['jt']
 
-    # ────────────────────────────────
-    # Choose correct host for this job
-    # ────────────────────────────────
     server_url = get_next_host(jt)
 
     if 'flux' in jt.lower():
@@ -132,6 +130,32 @@ def load_and_modify_workflow(base_path: str, job_data: dict, seed_start: int = 0
         inputs["shot"]          = shot_id
         inputs["name"]          = name
         inputs["seed_start"]    = job_data['seed_start']
+
+        # ── Pass LoRAs to WorkflowTrigger ───────────────────────────────
+        globals_d = job_data['globals']
+        shot_d    = job_data['shot_data']
+
+        def get_val(k, default=""):
+            v = shot_d.get(k) or globals_d.get(k, default)
+            return v.strip() if isinstance(v, str) else default
+
+        for i in range(1, 9):
+            fn_key   = f"FLUX_LORA{i}"
+            str_key  = f"FLUX_LORA{i}_STRENGTH"
+            filename = get_val(fn_key, "")
+            strength = get_val(str_key, "1.0")
+
+            inputs[f"lora_{i}"] = filename
+            try:
+                inputs[f"lora_{i}_strength"] = float(strength)
+            except (ValueError, TypeError):
+                inputs[f"lora_{i}_strength"] = 1.0
+
+        # ── NEW DEBUG: Show exactly what LoRA values are being sent to the trigger node ──
+        print("DEBUG: LoRA inputs sent to WorkflowTrigger node:")
+        for k in sorted(inputs):
+            if k.startswith("lora_"):
+                print(f"  {k:12}: {inputs[k]!r}")
 
         prompt_dict["1"]["inputs"] = inputs
 
@@ -161,21 +185,21 @@ def load_and_modify_workflow(base_path: str, job_data: dict, seed_start: int = 0
 
         inputs = trigger_node.setdefault("inputs", {})
 
-        inputs["mode"]       = job_data['shot_data'].get('QWEN_CAMERATRANSFORMATION_MODE',  # ← changed here
+        inputs["mode"]       = job_data['shot_data'].get('QWEN_CAMERATRANSFORMATION_MODE',
                                                         job_data['globals'].get('QWEN_CAMERATRANSFORMATION_MODE', 'FrontBackLeftRight'))
-        inputs["host"]       = "127.0.0.1:8188"           # internal ComfyUI address
-        inputs["input_dir"]  = "output"                   # as in your example
+        inputs["host"]       = "127.0.0.1:8188"
+        inputs["input_dir"]  = "output"
         inputs["project"]    = project
         inputs["sequence"]   = sequence
         inputs["shot"]       = shot_id
         inputs["name"]       = name
         inputs["json_file"]  = ""
-        inputs["seed_base"]  = job_data['seed_start']     # reusing the seed logic
+        inputs["seed_base"]  = job_data['seed_start']
 
         prompt_dict["1"]["inputs"] = inputs
 
     else:
-        # generic fallback (includes ct_qwen_i2i etc.)
+        # generic fallback
         for nid, node in prompt_dict.items():
             cls = node.get("class_type", "")
             if cls in ["PrimitiveInt", "Int"] and "value" in node["inputs"]:
@@ -184,7 +208,7 @@ def load_and_modify_workflow(base_path: str, job_data: dict, seed_start: int = 0
             if cls == "KSampler":
                 node["inputs"]["seed"] = job_data['seed_start']
 
-    # Filename prefix (common to all)
+    # Filename prefix (common)
     filename_prefix = f"{project}/{sequence}/{shot_id}/{name}_"
     for nid, node in prompt_dict.items():
         if node.get("class_type") in ["SaveImage", "SaveVideo"]:
@@ -251,7 +275,6 @@ def collect_jobs(config, allowed_jobtypes=None, target_project=None, target_sequ
                     if jt not in jobtypes_list:
                         continue
 
-                    # Build prompt — only for jobs that need text conditioning
                     workflow_json = ""
                     if jt not in ['ct_qwen_cameratransform']:
                         prompt_parts = []
@@ -300,8 +323,6 @@ def collect_jobs(config, allowed_jobtypes=None, target_project=None, target_sequ
 
 def run_storytools_execution(config, allowed_jobtypes=None, target_project=None, target_sequence=None, target_shot=None):
     globals_data = config['globals']
-
-    # Initialize round-robin queues once
     init_host_queues(globals_data)
 
     jobs = collect_jobs(config, allowed_jobtypes, target_project, target_sequence, target_shot)

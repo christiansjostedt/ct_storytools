@@ -15,7 +15,7 @@ class QwenCameraTrigger:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "mode": (["TT", "5angles", "10angles", "20angles", "CharacterSheet"], {
+                "mode": (["TT", "5angles", "10angles", "20angles", "FrontBackLeftRight"], {
                     "default": "5angles"
                 }),
                 "host": ("STRING", {"default": "127.0.0.1:8188"}),
@@ -23,7 +23,7 @@ class QwenCameraTrigger:
                 "project": ("STRING", {"default": "project"}),
                 "sequence": ("STRING", {"default": "seq"}),
                 "shot": ("STRING", {"default": "shot"}),
-                "name": ("STRING", {"default": "char"}),
+                "name": ("STRING", {"default": "name"}),
             },
             "optional": {
                 "json_file": ("STRING", {"default": "", "multiline": False}),
@@ -53,11 +53,8 @@ class QwenCameraTrigger:
         errors = []
 
         try:
-            # Normalize mode
             original_mode = mode
-            mode = mode.strip().lower()
-            if mode != original_mode:
-                print(f"[QwenCam] Normalized mode: '{original_mode}' → '{mode}'")
+            mode_normalized = mode.strip().lower()
 
             print("[QwenCam] Step 1: Locating base workflow")
             if not json_file:
@@ -93,26 +90,25 @@ class QwenCameraTrigger:
             print("[QwenCam] Step 4: Preparing camera combinations")
             combinations = []
 
-            if mode == "tt":
+            if mode_normalized == "tt":
                 for i in range(36):
                     h_angle = i * 10
                     combinations.append((h_angle, 0, 5.0))
-            elif mode in ("5angles", "10angles", "20angles"):
-                count = {"5angles": 5, "10angles": 10, "20angles": 20}[mode]
+            elif mode_normalized in ("5angles", "10angles", "20angles"):
+                count = {"5angles": 5, "10angles": 10, "20angles": 20}[mode_normalized]
                 for _ in range(count):
                     h = random.uniform(0, 360)
                     v = random.uniform(-30, 60)
                     z = random.uniform(2.5, 7.5)
                     combinations.append((h, v, z))
-            elif mode == "charactersheet":
-                preset_views = [
-                    (0, 0, 5.0), (45, 0, 5.0), (90, 0, 5.0), (135, 0, 5.0),
-                    (180, 0, 5.0), (225, 0, 5.0), (270, 0, 5.0), (315, 0, 5.0),
-                    (0, 35, 4.2), (0, -25, 5.8), (90, 20, 4.8), (270, 20, 4.8),
-                    (45, 25, 4.0), (135, 25, 4.0), (0, 0, 3.2), (0, 0, 7.0),
-                    (180, 15, 5.0), (90, -20, 5.2), (270, -20, 5.2), (0, 50, 3.5),
+            elif mode_normalized == "frontbackleftright":
+                # Exactly 4 fixed views
+                combinations = [
+                    (0,   0, 5.0),   # Front
+                    (90,  0, 5.0),   # Right
+                    (180, 0, 5.0),   # Back
+                    (270, 0, 5.0),   # Left
                 ]
-                combinations = preset_views
             else:
                 print(f"[QwenCam] WARNING - unknown mode '{mode}' (original: '{original_mode}')")
 
@@ -131,21 +127,28 @@ class QwenCameraTrigger:
                 filename = os.path.basename(full_img_path)
                 print(f"[QwenCam] Processing image {img_idx}/{len(image_paths)} : {filename}")
 
+                # === NEW: output subfolder = mode name inside the input image's parent directory ===
+                parent_dir = os.path.dirname(full_img_path)
+                mode_subfolder = os.path.join(parent_dir, original_mode)
+                print(f"[QwenCam] Output subfolder for this mode: {mode_subfolder}")
+                # No need to create it — ComfyUI will create folders from filename_prefix
+
                 for cam_idx, (h_angle, v_angle, zoom) in enumerate(combinations, 1):
                     print(f"[QwenCam]   → Cam {cam_idx}/{len(combinations)}  h={h_angle:.1f} v={v_angle:.1f} z={zoom:.1f}")
 
                     workflow = json.loads(json.dumps(base_workflow))
 
-                    # === OPTION B: Use absolute path for LoadImage ===
+                    # Absolute path for LoadImage
+                    abs_image_path = os.path.abspath(full_img_path)
+                    if not os.path.exists(abs_image_path):
+                        err_msg = f"Image file does NOT exist: {abs_image_path}"
+                        print(f"[QwenCam]     {err_msg}")
+                        errors.append(err_msg)
+                        debug.append(err_msg)
+                        continue
+
+                    print(f"[QwenCam]     Setting LoadImage → absolute path: {abs_image_path}")
                     if "8" in workflow and workflow["8"].get("class_type") == "LoadImage":
-                        abs_image_path = os.path.abspath(full_img_path)
-                        if not os.path.exists(abs_image_path):
-                            err_msg = f"Image file does NOT exist: {abs_image_path}"
-                            print(f"[QwenCam]     {err_msg}")
-                            errors.append(err_msg)
-                            debug.append(err_msg)
-                            continue  # skip this job
-                        print(f"[QwenCam]     Setting LoadImage → absolute path: {abs_image_path}")
                         workflow["8"]["inputs"]["image"] = abs_image_path
 
                     if "4" in workflow and workflow["4"].get("class_type") == "QwenMultiangleCameraNode":
@@ -160,7 +163,9 @@ class QwenCameraTrigger:
                         print(f"[QwenCam]     Setting seed = {seed}")
                         workflow["2:105"]["inputs"]["seed"] = seed
 
-                    prefix = f"{project}/{sequence}/{shot}/{name}_{original_mode}_i{img_idx:02d}_c{cam_idx:03d}_h{int(h_angle):03d}_v{int(v_angle):+03d}_z{zoom:.1f}_"
+                    # === Output prefix includes mode subfolder ===
+                    # e.g. project/seq/shot/5angles/a_5angles_i01_c001_...
+                    prefix = f"{project}/{sequence}/{shot}/{original_mode}/{name}_{original_mode}_i{img_idx:02d}_c{cam_idx:03d}_h{int(h_angle):03d}_v{int(v_angle):+03d}_z{zoom:.1f}_"
                     print(f"[QwenCam]     Setting SaveImage prefix: {prefix}")
                     for node_id, node in workflow.items():
                         if node.get("class_type") == "SaveImage":

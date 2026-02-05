@@ -11,26 +11,27 @@
       "sequence": "seq",
       "shot": "shot",
       "name": "name",
-      "seed_start": 0
+      "seed_start": 0,
+      "lora_1": "",
+      "lora_1_strength": 1,
+      "lora_2": "",
+      "lora_2_strength": 1,
+      "lora_3": "",
+      "lora_3_strength": 1,
+      "lora_4": "",
+      "lora_4_strength": 1,
+      "lora_5": "",
+      "lora_5_strength": 1,
+      "lora_6": "",
+      "lora_6_strength": 1,
+      "lora_7": "",
+      "lora_7_strength": 1,
+      "lora_8": "",
+      "lora_8_strength": 1
     },
     "class_type": "WorkflowTrigger",
     "_meta": {
       "title": "ct_flux_t2i"
     }
-  },
-  "2": {
-    "inputs": {
-      "mode": "raw value",
-      "displaytext": "=== DEBUG START ===\nUsing file: /ComfyUI/custom_nodes/ct_storytools/workflows/ct_flux_t2i_base.json\n✅ Loaded (2887 chars): {\"4\": {\"inputs\": {\"unet_name\": \"flux1-dev.safetensors\", \"weight_dtype\": \"default\"}, \"class_type\": \"UNETLoader\", \"_meta\": {\"title\": \"Load Diffusion Model\"}}, \"5\": {\"inputs\": {\"vae_name\": \"ae.safetensors\"}, \"class_type\": \"VAELoader\", \"_meta\": {\"title\": \"Load VAE\"}}, \"6\": {\"inputs\": {\"clip_name1\": \"cli...\nFound 2 'REPLACETEXT'\n✅ Replaced with 'monkey in jungle'\n🔄 Wrapping API nodes in 'prompt'\n Updated WIDTH_SET (21): value=960\n Updated HEIGHT_SET (22): value=720\n📁 Setting prefix: project/seq/shot/name_\n✅ Created dir: /ComfyUI/output/project/seq/shot\n Updated SaveImage 15: project/seq/shot/name_\n🔀 Job 1: Seed = 0 (from SEED_START + 0)\nJob 1: Status 200 | ID db6733c3\n🔀 Job 2: Seed = 1 (from SEED_START + 1)\nJob 2: Status 200 | ID 4d7b057d\n✅ Queued 2 jobs\n⏳ Polling first job 8799fe11 (10s)...\n=== FIRST JOB HISTORY ===\n{}...\n❌ No outputs for job 1—add SaveImage\n=== DEBUG END ===",
-      "input": [
-        "1",
-        0
-      ]
-    },
-    "class_type": "DisplayAny",
-    "_meta": {
-      "title": "🔧 Display Any"
-    }
   }
 }
-
