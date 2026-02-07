@@ -370,7 +370,7 @@ def run_storytools_execution(config, allowed_jobtypes=None, target_project=None,
     return all_results
 
 
-def run_all(config_path=None, allowed_jobtypes=None):
+def run_all(config_path=None, allowed_jobtypes=None, only_sequence=None):
     if config_path is None:
         default = os.path.join(os.path.dirname(__file__), '..', 'configs', 'story_template.txt')
         config_path = default if os.path.exists(default) else None
@@ -379,12 +379,14 @@ def run_all(config_path=None, allowed_jobtypes=None):
 
     config = parser.parse_config(config_path)
     project = config['globals']['PROJECT']
-    print(f"Running all shots — project: {project}")
+    seq_info = f" (sequence: {only_sequence})" if only_sequence else ""
+    print(f"Running all shots — project: {project}{seq_info}")
 
     full_results = run_storytools_execution(
         config=config,
         allowed_jobtypes=allowed_jobtypes,
-        target_project=project
+        target_project=project,
+        target_sequence=only_sequence,          # ← this is the key addition
     )
 
     print(f"\n=== SUMMARY: {len(full_results)} executions "

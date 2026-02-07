@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # GUI for CT Storytools Launcher + Shot Text Editor (compact layout 2025–2026)
 # Updated: QWEN_CAMERATRANSFORMATION_MODE is now GLOBAL (autosaves to globals section)
+# Modified: "Run All" now runs only the currently selected sequence
+# Modified again: Run All button always says "Run All" (static label)
 
 import customtkinter as ctk
 from tkinter import messagebox, filedialog, Entry, simpledialog
@@ -154,6 +156,7 @@ class StorytoolsGUI:
 
         ctk.CTkButton(run_row, text="Run All", command=self.run_all_threaded,
                       fg_color="green", width=140).pack(side="left", expand=True, fill="x", padx=(0,6))
+
         ctk.CTkButton(run_row, text="Run Selected", command=self.run_selected_threaded,
                       fg_color="orange", width=140).pack(side="right", expand=True, fill="x", padx=(6,0))
 
@@ -329,14 +332,18 @@ class StorytoolsGUI:
     def apply_host_restriction(self):
         if not self.selected_jobtype or not self.config_path:
             return None, None
+
         host_key = self._get_host_key_for_jobtype(self.selected_jobtype)
         if not host_key:
             return None, None
+
         selected_hosts = self.host_selections.get(self.selected_jobtype, set())
         if not selected_hosts:
             return None, None
+
         with open(self.config_path, 'r', encoding='utf-8') as f:
             lines = f.readlines()
+
         original_line = None
         line_idx = -1
         for i, line in enumerate(lines):
@@ -345,29 +352,38 @@ class StorytoolsGUI:
                 original_line = line.rstrip('\n')
                 line_idx = i
                 break
+
         if line_idx == -1:
             print(f"Warning: {host_key}= not found")
             return None, None
+
         new_value = ', '.join(sorted(selected_hosts))
         new_line = f"{host_key}={new_value}\n"
+
         backup_path = self.config_path + ".bak_host"
         shutil.copy2(self.config_path, backup_path)
+
         lines[line_idx] = new_line
         with open(self.config_path, 'w', encoding='utf-8', newline='') as f:
             f.writelines(lines)
+
         print(f"Restricted → {host_key}={new_value}")
         return original_line, line_idx
 
     def restore_original_hosts(self, original_line, line_idx):
         if original_line is None or line_idx is None or not self.config_path:
             return
+
         with open(self.config_path, 'r', encoding='utf-8') as f:
             lines = f.readlines()
+
         if 0 <= line_idx < len(lines):
             lines[line_idx] = original_line.rstrip('\n') + '\n'
-            with open(self.config_path, 'w', encoding='utf-8', newline='') as f:
-                f.writelines(lines)
-            print("Restored hosts")
+
+        with open(self.config_path, 'w', encoding='utf-8', newline='') as f:
+            f.writelines(lines)
+
+        print("Restored hosts")
         backup = self.config_path + ".bak_host"
         if os.path.exists(backup):
             try:
@@ -380,9 +396,11 @@ class StorytoolsGUI:
         if path in ("", "Drag file or click Browse") or not os.path.exists(path):
             messagebox.showerror("Error", "Invalid config path!")
             return
+
         try:
             with open(path, encoding='utf-8') as f:
                 self.original_lines = f.readlines()
+
             self.config = parser.parse_config(path)
             self.config_path = path
 
@@ -403,17 +421,21 @@ class StorytoolsGUI:
 
             project = self.config['globals'].get('PROJECT', 'Unknown')
             self.project_label.configure(text=f"Project: {project}")
+
             self.sequences = sorted(self.config.get(project, {}).keys())
             self.seq_dropdown.configure(values=self.sequences or ["None"])
             self.shot_ranges.clear()
             self._scan_shot_ranges()
+
             if self.sequences:
                 self.seq_var.set(self.selected_seq if self.selected_seq in self.sequences else self.sequences[0])
                 self.on_seq_change(self.seq_var.get())
             else:
                 self._clear_dropdowns()
+
             self.update_host_selection()
             self.update_mode_visibility()
+
         except Exception as e:
             messagebox.showerror("Parse Error", f"Failed to parse:\n{str(e)}")
             print(f"Parse error: {e}", file=sys.stderr)
@@ -424,9 +446,17 @@ class StorytoolsGUI:
             return
         jt = self.get_selected_jobtype()
         if not jt:
-            messagebox.showerror("Error", "Select job type!")
+            messagebox.showerror("Error", "Select job type first!")
             return
-        threading.Thread(target=self._run_with_host_control, args=(run_all, [jt], None, None), daemon=True).start()
+        if not self.selected_seq or self.selected_seq in ("Select Sequence", "None"):
+            messagebox.showerror("Error", "Please select a sequence first to run all its shots!")
+            return
+
+        threading.Thread(
+            target=self._run_with_host_control,
+            args=(run_all, [jt], self.selected_seq, None),
+            daemon=True
+        ).start()
 
     def run_selected_threaded(self):
         if not self.selected_seq or not self.selected_shot:
@@ -440,21 +470,31 @@ class StorytoolsGUI:
                          args=(run_storytools_execution, [jt], self.selected_seq, self.selected_shot),
                          daemon=True).start()
 
-    def _run_with_host_control(self, runner_func, allowed, target_seq=None, target_shot=None):
+    def _run_with_host_control(self, runner_func, allowed, target_sequence=None, target_shot=None):
         original_line = None
         line_idx = None
         try:
             original_line, line_idx = self.apply_host_restriction()
             self.config = parser.parse_config(self.config_path)
-            if target_seq and target_shot:
+
+            if runner_func == run_all:
+                # For run_all we now support only_sequence
+                runner_func(
+                    config_path=self.config_path,
+                    allowed_jobtypes=allowed,
+                    only_sequence=target_sequence
+                )
+            elif runner_func == run_storytools_execution:
+                # For single shot / selected we keep the old signature
                 runner_func(
                     config=self.config,
                     allowed_jobtypes=allowed,
-                    target_sequence=target_seq,
+                    target_sequence=target_sequence,
                     target_shot=target_shot
                 )
             else:
-                runner_func(self.config_path, allowed_jobtypes=allowed)
+                raise ValueError("Unknown runner function")
+
         except Exception as e:
             messagebox.showerror("Run Error", str(e))
         finally:
