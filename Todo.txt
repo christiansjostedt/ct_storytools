@@ -1,19 +1,19 @@
 ToDO:
 
-
-update flux and workflows so we can input loras
 Character sheet workflow into subfolder
 
 update parser and launcher so we can modify image prompt and video prompt separately, it will help with story telling
-
 
 workflow for changing the background of a shot
 workflow for generating a 360 hdri of an input
 
 make text wrap in the text editor
-
 make the window start up a bit bigger so we dont have to expand it to see the modes dropdown
+when pressing create new shot, the config should be saved before creating the new shot
+make the dropdowns scrollable, right now we have too many items and cannot access all of them
 
+* The Run All button should only run all shots within a sequence and not all shots for the entire project
+* update flux and workflows so we can input loras
 * update ct_qwen_cameratransform to output images to subfolders
 * refine the ct_qwen_cameratransform angles
 * workflow for taking FrontTopLeftRight and making an animated TT
