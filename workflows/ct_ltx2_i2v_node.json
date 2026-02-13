@@ -1,0 +1,35 @@
+{
+  "1": {
+    "inputs": {
+      "input_prompt": "REPLACETEXT",
+      "host": "127.0.0.1:8188",
+      "width": 1280,
+      "height": 720,
+      "video_length": 361,
+      "checkpoint_name": "ltx-2-19b-distilled-fp8.safetensors",
+      "fps": 24,
+      "json_file": "",
+      "project": "project",
+      "sequence": "seq",
+      "shot": "shot",
+      "name": "name"
+    },
+    "class_type": "CT_LTX2_i2v_trigger",
+    "_meta": {
+      "title": "ct_ltx2_i2v"
+    }
+  },
+  "2": {
+    "inputs": {
+      "mode": "raw value",
+      "input": [
+        "1",
+        0
+      ]
+    },
+    "class_type": "DisplayAny",
+    "_meta": {
+      "title": "🔧 Display Any"
+    }
+  }
+}

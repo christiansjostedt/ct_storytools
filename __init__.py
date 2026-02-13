@@ -1,4 +1,5 @@
 # ct_storytools/__init__.py - Root-level node registration (modular, no subdir)
+
 NODE_CLASS_MAPPINGS = {}
 NODE_DISPLAY_NAME_MAPPINGS = {}
 
@@ -19,6 +20,15 @@ try:
     print("Registered: CT_WAN_TRIGGER (wan)")
 except ImportError as e:
     print(f"Wan registration failed: {e}")
+
+# LTX2 i2v node (new)
+try:
+    from .ct_ltx2_i2v import CT_LTX2_i2v_trigger
+    NODE_CLASS_MAPPINGS["CT_LTX2_i2v_trigger"] = CT_LTX2_i2v_trigger
+    NODE_DISPLAY_NAME_MAPPINGS["CT_LTX2_i2v_trigger"] = "ct_ltx2_i2v"
+    print("Registered: CT_LTX2_i2v_trigger (ltx2 i2v)")
+except ImportError as e:
+    print(f"LTX2 i2v registration failed: {e}")
 
 # FS node
 try:

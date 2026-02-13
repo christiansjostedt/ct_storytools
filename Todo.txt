@@ -1,17 +1,44 @@
 ToDO:
 
-Character sheet workflow into subfolder
 
-update parser and launcher so we can modify image prompt and video prompt separately, it will help with story telling
+LTX2 workflow!
+    update parser and launcher so we can modify image prompt and video prompt separately, it will help with story telling
+
+    global config adjustment for LTX SETTINGS
+        WIDTH
+        HEIGHT
+        video_length 241
+        checkpoint_name
+        fps
+
+    shot config adjustment for LTX SETTINGS
+        environment - describing the environment
+        action prompt - what happends in the shot
+        camera prompt - what is the camera doing
+        img prompt - start position
+
+    LTX2_t2v
+        workflow json
+        base json
+
+    LTX2_i2v
+        workflow json
+        base json
+
+    LTX2_ia2v - image and audio
+        workflow json
+        base json
+
+
 
 workflow for changing the background of a shot
 workflow for generating a 360 hdri of an input
+make the window start up a bit bigger so we dont have to expand it to see the modes dropdown
+Character sheet workflow into subfolder
 
 make text wrap in the text editor
-make the window start up a bit bigger so we dont have to expand it to see the modes dropdown
-when pressing create new shot, the config should be saved before creating the new shot
-make the dropdowns scrollable, right now we have too many items and cannot access all of them
-
+* when pressing create new shot or new sequence, the config should be saved before creating the new shot
+* make the dropdowns scrollable, right now we have too many items and cannot access all of them
 * The Run All button should only run all shots within a sequence and not all shots for the entire project
 * update flux and workflows so we can input loras
 * update ct_qwen_cameratransform to output images to subfolders

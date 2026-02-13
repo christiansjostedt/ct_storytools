@@ -134,6 +134,7 @@ def parse_config(file_path: str) -> dict:
     g = config['globals']
     g['FLUX_HOSTS']  = split_hosts(g.get('FLUX_HOST', ''))
     g['WAN_HOSTS']   = split_hosts(g.get('WAN_HOST',  ''))
+    g['LTX_HOSTS']   = split_hosts(g.get('LTX_HOST',  ''))
     g['QWEN_HOSTS']  = split_hosts(g.get('QWEN_HOST', ''))
     g['QWEN_MODE']   = g.get('QWEN_MODE', '5angles')
     # Keep old HOST as ultimate fallback
@@ -143,6 +144,7 @@ def parse_config(file_path: str) -> dict:
     print("Global hosts parsed:")
     print(f"  FLUX_HOSTS   = {g['FLUX_HOSTS']}")
     print(f"  WAN_HOSTS    = {g['WAN_HOSTS']}")
+    print(f"  LTX_HOSTS    = {g['LTX_HOSTS']}")
     print(f"  QWEN_HOSTS   = {g['QWEN_HOSTS']}")
     print(f"  fallback     = {g['FALLBACK_HOST']}")
 

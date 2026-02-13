@@ -2,7 +2,9 @@
 # Portable Launcher via ComfyUI API
 # Updated: support FLUX_HOSTS, WAN_HOSTS, QWEN_HOSTS → round-robin per job type
 # Added: support for ct_qwen_cameratransform using real QwenCameraTrigger node
+# Added: support for ct_ltx2_i2v with combined prompt (IMG + ENV + ACTION + CAMERA + AUDIO)
 # Updated 2025/2026: LoRAs now passed via WorkflowTrigger inputs instead of patching base workflow
+# Added: LTX_HOST / LTX_HOSTS round-robin support
 
 import json
 import os
@@ -17,43 +19,45 @@ ROOT_DIR = os.path.dirname(os.path.dirname(__file__))
 WORKFLOWS_DIR = os.path.join(ROOT_DIR, 'workflows')
 
 jobtype_to_json = {
-    'ct_flux_t2i': os.path.join(WORKFLOWS_DIR, 'ct_flux_t2i_node.json'),
-    'ct_wan2_5s':  os.path.join(WORKFLOWS_DIR, 'ct_wan2_5s_node.json'),
-    'ct_qwen_i2i': os.path.join(WORKFLOWS_DIR, 'ct_qwen_i2i_base.json'),
+    'ct_flux_t2i':          os.path.join(WORKFLOWS_DIR, 'ct_flux_t2i_node.json'),
+    'ct_wan2_5s':           os.path.join(WORKFLOWS_DIR, 'ct_wan2_5s_node.json'),
+    'ct_qwen_i2i':          os.path.join(WORKFLOWS_DIR, 'ct_qwen_i2i_base.json'),
     'ct_qwen_cameratransform': os.path.join(WORKFLOWS_DIR, 'ct_qwen_cameratransform_node.json'),
+    'ct_ltx2_i2v':          os.path.join(WORKFLOWS_DIR, 'ct_ltx2_i2v_node.json'),  # ← new
 }
 
 # Round-robin queues per job family
-flux_host_queue  = None
-wan_host_queue   = None
-qwen_host_queue  = None
-fallback_host    = "http://127.0.0.1:8188"
-
+flux_host_queue = None
+wan_host_queue = None
+qwen_host_queue = None
+ltx_host_queue = None   # ← added for LTX
+fallback_host = "http://127.0.0.1:8188"
 
 def init_host_queues(globals_data):
-    global flux_host_queue, wan_host_queue, qwen_host_queue, fallback_host
-
+    global flux_host_queue, wan_host_queue, qwen_host_queue, ltx_host_queue, fallback_host
     flux_hosts = globals_data.get('FLUX_HOSTS', [])
-    wan_hosts  = globals_data.get('WAN_HOSTS',  [])
+    wan_hosts = globals_data.get('WAN_HOSTS', [])
     qwen_hosts = globals_data.get('QWEN_HOSTS', [])
-    fallback   = globals_data.get('FALLBACK_HOST', '127.0.0.1:8188')
+    ltx_hosts = globals_data.get('LTX_HOSTS', [])   # ← added
+    fallback = globals_data.get('FALLBACK_HOST', '127.0.0.1:8188')
 
     flux_host_queue = deque([f"http://{h}" for h in flux_hosts]) if flux_hosts else None
-    wan_host_queue  = deque([f"http://{h}" for h in wan_hosts])  if wan_hosts  else None
+    wan_host_queue = deque([f"http://{h}" for h in wan_hosts]) if wan_hosts else None
     qwen_host_queue = deque([f"http://{h}" for h in qwen_hosts]) if qwen_hosts else None
-    fallback_host   = f"http://{fallback}"
+    ltx_host_queue = deque([f"http://{h}" for h in ltx_hosts]) if ltx_hosts else None   # ← added
+
+    fallback_host = f"http://{fallback}"
 
     print("Host queues initialized:")
-    print(f"  flux  → {flux_host_queue}")
-    print(f"  wan   → {wan_host_queue}")
-    print(f"  qwen  → {qwen_host_queue}")
-    print(f"  fallback → {fallback_host}")
-
+    print(f" flux → {flux_host_queue}")
+    print(f" wan → {wan_host_queue}")
+    print(f" qwen → {qwen_host_queue}")
+    print(f" ltx  → {ltx_host_queue}")   # ← added
+    print(f" fallback → {fallback_host}")
 
 def get_next_host(jobtype: str) -> str:
     """Round-robin host selection per job family"""
-    global flux_host_queue, wan_host_queue, qwen_host_queue, fallback_host
-
+    global flux_host_queue, wan_host_queue, qwen_host_queue, ltx_host_queue, fallback_host
     jt_lower = jobtype.lower()
 
     if 'flux' in jt_lower and flux_host_queue and len(flux_host_queue) > 0:
@@ -75,10 +79,15 @@ def get_next_host(jobtype: str) -> str:
             print(f"→ Using QWEN host: {host}")
             return host
 
+    if 'ltx' in jt_lower and ltx_host_queue and len(ltx_host_queue) > 0:
+        host = ltx_host_queue.popleft()
+        ltx_host_queue.append(host)
+        print(f"→ Using LTX host: {host}")
+        return host
+
     # fallback
     print(f"→ Using fallback host: {fallback_host}")
     return fallback_host
-
 
 def load_and_modify_workflow(base_path: str, job_data: dict, seed_start: int = 0) -> tuple[dict, str]:
     if not os.path.exists(base_path):
@@ -88,11 +97,12 @@ def load_and_modify_workflow(base_path: str, job_data: dict, seed_start: int = 0
         loaded_data = json.load(f)
 
     payload_str = json.dumps(loaded_data)
-    # Cache-bust
+
+    # Cache-bust (still useful if you keep REPLACETEXT somewhere)
     cache_buster = f" [ts:{int(time.time()*1000)}]"
     job_data['workflow_json'] += cache_buster
-
     payload_str = payload_str.replace("REPLACETEXT", job_data['workflow_json'])
+
     payload = json.loads(payload_str)
 
     if "nodes" in payload:
@@ -108,10 +118,15 @@ def load_and_modify_workflow(base_path: str, job_data: dict, seed_start: int = 0
     width      = job_data['width']
     height     = job_data['height']
     name       = job_data['name']
-    num_jobs   = job_data['num_jobs']
     jt         = job_data['jt']
-
     server_url = get_next_host(jt)
+
+    shot_d    = job_data['shot_data']
+    globals_d = job_data['globals']
+
+    def get_val(k, default=""):
+        v = shot_d.get(k) or globals_d.get(k, default)
+        return v.strip() if isinstance(v, str) else default
 
     if 'flux' in jt.lower():
         flux_node = prompt_dict.get("1", {})
@@ -120,42 +135,33 @@ def load_and_modify_workflow(base_path: str, job_data: dict, seed_start: int = 0
 
         inputs = flux_node.setdefault("inputs", {})
         inputs["workflow_json"] = job_data['workflow_json']
-        inputs["host"]          = "127.0.0.1:8188"
-        inputs["width"]         = width
-        inputs["height"]        = height
-        inputs["json_file"]     = ""
-        inputs["num_jobs"]      = num_jobs
-        inputs["project"]       = project
-        inputs["sequence"]      = sequence
-        inputs["shot"]          = shot_id
-        inputs["name"]          = name
-        inputs["seed_start"]    = job_data['seed_start']
+        inputs["host"] = "127.0.0.1:8188"
+        inputs["width"] = width
+        inputs["height"] = height
+        inputs["json_file"] = ""
+        inputs["num_jobs"] = job_data['num_jobs']  # still exists in flux trigger
+        inputs["project"] = project
+        inputs["sequence"] = sequence
+        inputs["shot"] = shot_id
+        inputs["name"] = name
+        inputs["seed_start"] = job_data['seed_start']
 
-        # ── Pass LoRAs to WorkflowTrigger ───────────────────────────────
-        globals_d = job_data['globals']
-        shot_d    = job_data['shot_data']
-
-        def get_val(k, default=""):
-            v = shot_d.get(k) or globals_d.get(k, default)
-            return v.strip() if isinstance(v, str) else default
-
+        # Pass LoRAs
         for i in range(1, 9):
-            fn_key   = f"FLUX_LORA{i}"
-            str_key  = f"FLUX_LORA{i}_STRENGTH"
+            fn_key = f"FLUX_LORA{i}"
+            str_key = f"FLUX_LORA{i}_STRENGTH"
             filename = get_val(fn_key, "")
             strength = get_val(str_key, "1.0")
-
             inputs[f"lora_{i}"] = filename
             try:
                 inputs[f"lora_{i}_strength"] = float(strength)
             except (ValueError, TypeError):
                 inputs[f"lora_{i}_strength"] = 1.0
 
-        # ── NEW DEBUG: Show exactly what LoRA values are being sent to the trigger node ──
         print("DEBUG: LoRA inputs sent to WorkflowTrigger node:")
         for k in sorted(inputs):
             if k.startswith("lora_"):
-                print(f"  {k:12}: {inputs[k]!r}")
+                print(f" {k:12}: {inputs[k]!r}")
 
         prompt_dict["1"]["inputs"] = inputs
 
@@ -165,16 +171,70 @@ def load_and_modify_workflow(base_path: str, job_data: dict, seed_start: int = 0
             raise ValueError("CT_WAN_TRIGGER node not found")
 
         inputs = wan_node.setdefault("inputs", {})
-        inputs["workflow_json"] = job_data['workflow_json']
-        inputs["host"]          = "127.0.0.1:8188"
-        inputs["width"]         = width
-        inputs["height"]        = height
-        inputs["json_file"]     = ""
-        inputs["num_jobs"]      = 1
-        inputs["project"]       = project
-        inputs["sequence"]      = sequence
-        inputs["shot"]          = shot_id
-        inputs["name"]          = name
+
+        # Build combined prompt for WAN
+        parts = []
+        for key in ['IMG_PROMPT', 'ENVIRONMENT_PROMPT', 'ACTION_PROMPT', 'CAMERA_PROMPT', 'AUDIO_PROMPT']:
+            val = get_val(key)
+            if val:
+                parts.append(val)
+
+        combined_prompt = ", ".join(parts).strip()
+
+        inputs["input_prompt"] = combined_prompt
+        inputs["host"] = "127.0.0.1:8188"
+        inputs["width"] = width
+        inputs["height"] = height
+        inputs["json_file"] = ""
+        inputs["project"] = project
+        inputs["sequence"] = sequence
+        inputs["shot"] = shot_id
+        inputs["name"] = name
+
+        print(f"DEBUG: Combined WAN prompt → {combined_prompt[:120]}{'...' if len(combined_prompt)>120 else ''}")
+
+        prompt_dict["1"]["inputs"] = inputs
+
+    elif 'ltx' in jt.lower() or 'ltx2_i2v' in jt.lower():
+        ltx_node = prompt_dict.get("1", {})
+        if not ltx_node or ltx_node.get("class_type") != "CT_LTX2_i2v_trigger":
+            raise ValueError("CT_LTX2_i2v_trigger node (id=1) not found or wrong class_type")
+
+        inputs = ltx_node.setdefault("inputs", {})
+
+        # Build combined prompt following LTX guidelines order
+        parts = []
+        for key in ['IMG_PROMPT', 'ENVIRONMENT_PROMPT', 'ACTION_PROMPT', 'CAMERA_PROMPT', 'AUDIO_PROMPT']:
+            val = get_val(key)
+            if val:
+                parts.append(val)
+
+        combined_prompt = ", ".join(parts).strip()
+
+        inputs["input_prompt"]   = combined_prompt
+        inputs["host"]           = "127.0.0.1:8188"
+        inputs["width"]          = width
+        inputs["height"]         = height
+        inputs["video_length"]   = int(get_val('LTX_VIDEO_LENGTH', 361))
+        inputs["checkpoint_name"] = get_val('LTX_CHECKPOINT', "ltx-2-19b-distilled-fp8.safetensors")
+        inputs["fps"]            = float(get_val('LTX_FPS', 24.0))
+        inputs["json_file"]      = ""
+        inputs["project"]        = project
+        inputs["sequence"]       = sequence
+        inputs["shot"]           = shot_id
+        inputs["name"]           = name
+
+        # Regenerate is unprefixed → can be used by other video jobs later
+        regen_raw = get_val('REGENERATE_VIDEOS', '0').strip().lower()
+        regenerate = regen_raw in ('1', 'true', 'yes', 'on')
+        inputs["regenerate"] = regenerate
+
+        print(f"DEBUG: LTX settings applied:")
+        print(f"  video_length   = {inputs['video_length']}")
+        print(f"  fps            = {inputs['fps']}")
+        print(f"  checkpoint     = {inputs['checkpoint_name']}")
+        print(f"  regenerate     = {regenerate}")
+        print(f"  combined prompt (first 120 chars): {combined_prompt[:120]}{'...' if len(combined_prompt)>120 else ''}")
 
         prompt_dict["1"]["inputs"] = inputs
 
@@ -184,31 +244,29 @@ def load_and_modify_workflow(base_path: str, job_data: dict, seed_start: int = 0
             raise ValueError("QwenCameraTrigger node (id=1) not found or wrong class_type")
 
         inputs = trigger_node.setdefault("inputs", {})
-
-        inputs["mode"]       = job_data['shot_data'].get('QWEN_CAMERATRANSFORMATION_MODE',
-                                                        job_data['globals'].get('QWEN_CAMERATRANSFORMATION_MODE', 'FrontBackLeftRight'))
-        inputs["host"]       = "127.0.0.1:8188"
-        inputs["input_dir"]  = "output"
-        inputs["project"]    = project
-        inputs["sequence"]   = sequence
-        inputs["shot"]       = shot_id
-        inputs["name"]       = name
-        inputs["json_file"]  = ""
-        inputs["seed_base"]  = job_data['seed_start']
+        inputs["mode"]     = get_val('QWEN_CAMERATRANSFORMATION_MODE', 'FrontBackLeftRight')
+        inputs["host"]     = "127.0.0.1:8188"
+        inputs["input_dir"] = "output"
+        inputs["project"]  = project
+        inputs["sequence"] = sequence
+        inputs["shot"]     = shot_id
+        inputs["name"]     = name
+        inputs["json_file"] = ""
+        inputs["seed_base"] = job_data['seed_start']
 
         prompt_dict["1"]["inputs"] = inputs
 
     else:
-        # generic fallback
+        # generic fallback (rarely used now)
         for nid, node in prompt_dict.items():
             cls = node.get("class_type", "")
             if cls in ["PrimitiveInt", "Int"] and "value" in node["inputs"]:
-                if "width"  in nid.lower(): node["inputs"]["value"] = width
+                if "width" in nid.lower():  node["inputs"]["value"] = width
                 if "height" in nid.lower(): node["inputs"]["value"] = height
             if cls == "KSampler":
                 node["inputs"]["seed"] = job_data['seed_start']
 
-    # Filename prefix (common)
+    # Filename prefix (common safety net)
     filename_prefix = f"{project}/{sequence}/{shot_id}/{name}_"
     for nid, node in prompt_dict.items():
         if node.get("class_type") in ["SaveImage", "SaveVideo"]:
@@ -220,15 +278,12 @@ def load_and_modify_workflow(base_path: str, job_data: dict, seed_start: int = 0
 
     return payload, server_url
 
-
 def queue_workflow_via_api(server_url: str, payload: dict, num_jobs: int = 1) -> list:
     queued_ids = []
     base_payload = payload
-
     for i in range(num_jobs):
         job_payload = json.loads(json.dumps(base_payload))
         job_payload["client_id"] = f"{time.time()}_{i}"
-
         try:
             resp = requests.post(f"{server_url}/prompt", json=job_payload, timeout=15)
             resp.raise_for_status()
@@ -237,49 +292,41 @@ def queue_workflow_via_api(server_url: str, payload: dict, num_jobs: int = 1) ->
             print(f"Queued {i+1}/{num_jobs} → {server_url} | ID: {prompt_id[:8]}...")
         except Exception as e:
             print(f"Queue failed on {server_url}: {e}")
-
     return queued_ids
-
 
 def collect_jobs(config, allowed_jobtypes=None, target_project=None, target_sequence=None, target_shot=None):
     globals_data = config['globals']
     project = target_project or globals_data.get('PROJECT', 'default')
-
     if project not in config:
         raise ValueError(f"Project '{project}' not found")
 
     sequences_to_run = [target_sequence] if target_sequence else list(config[project].keys())
-
     jobs = []
-
-    known_jobtypes = ['ct_flux_t2i', 'ct_wan2_5s', 'ct_qwen_i2i', 'ct_qwen_cameratransform']
+    known_jobtypes = ['ct_flux_t2i', 'ct_wan2_5s', 'ct_qwen_i2i', 'ct_qwen_cameratransform', 'ct_ltx2_i2v']
 
     for jt in known_jobtypes:
         if allowed_jobtypes and jt not in allowed_jobtypes:
             continue
-
         for seq in sorted(sequences_to_run):
             if seq not in config[project]:
                 continue
             shots_to_run = sorted(config[project][seq].keys()) if not target_shot else [target_shot]
-
             for shot_id in shots_to_run:
                 for subshot_id in sorted(config[project][seq][shot_id]):
                     shot_data = config[project][seq][shot_id][subshot_id]
                     jobtype_str = shot_data.get('JOBTYPE') or shot_data.get('IMAGE_JOBTYPE') or shot_data.get('VIDEO_JOBTYPE')
-
                     if not jobtype_str:
                         continue
-
                     jobtypes_list = [j.strip() for j in jobtype_str.split(',') if j.strip()]
                     if jt not in jobtypes_list:
                         continue
 
+                    # Use IMG_PROMPT instead of old POSITIVE_PROMPT
                     workflow_json = ""
                     if jt not in ['ct_qwen_cameratransform']:
                         prompt_parts = []
-                        if pos := shot_data.get('POSITIVE_PROMPT', '').strip():
-                            prompt_parts.append(pos)
+                        if img := shot_data.get('IMG_PROMPT', '').strip():
+                            prompt_parts.append(img)
                         if env := shot_data.get('ENVIRONMENT_PROMPT', '').strip():
                             prompt_parts.append(env)
                         if style := globals_data.get('GRAPHICAL_STYLE', '').strip():
@@ -288,50 +335,47 @@ def collect_jobs(config, allowed_jobtypes=None, target_project=None, target_sequ
 
                     workflow_json_escaped = json.dumps(workflow_json)[1:-1] if workflow_json else ""
 
-                    width  = int(shot_data.get('WIDTH',  globals_data.get('WIDTH',  1024)))
+                    width = int(shot_data.get('WIDTH', globals_data.get('WIDTH', 1024)))
                     height = int(shot_data.get('HEIGHT', globals_data.get('HEIGHT', 1024)))
-                    name   = subshot_id
+                    name = subshot_id
 
                     if 'flux' in jt.lower():
                         num_jobs = int(shot_data.get('FLUX_ITERATIONS', globals_data.get('FLUX_ITERATIONS', 1)))
-                    elif 'wan' in jt.lower():
-                        num_jobs = 1
+                    elif 'wan' in jt.lower() or 'ltx' in jt.lower():
+                        num_jobs = 1  # triggers handle batching internally now
                     elif 'qwen' in jt.lower():
                         num_jobs = int(shot_data.get('GENERATE_QWEN_ANGLES', globals_data.get('GENERATE_QWEN_ANGLES', 1)))
                     else:
                         num_jobs = int(shot_data.get('ITERATIONS', globals_data.get('ITERATIONS', 1)))
 
                     jobs.append({
-                        'project':     project,
-                        'sequence':    seq,
-                        'shot_id':     shot_id,
-                        'subshot_id':  subshot_id,
-                        'jt':          jt,
-                        'shot_data':   shot_data,
-                        'num_jobs':    num_jobs,
+                        'project': project,
+                        'sequence': seq,
+                        'shot_id': shot_id,
+                        'subshot_id': subshot_id,
+                        'jt': jt,
+                        'shot_data': shot_data,
+                        'num_jobs': num_jobs,
                         'workflow_json': workflow_json_escaped,
-                        'width':       width,
-                        'height':      height,
-                        'name':        name,
-                        'globals':     globals_data,
-                        'seed_start':  int(globals_data.get('SEED_START', 0)) % 4294967296,
+                        'width': width,
+                        'height': height,
+                        'name': name,
+                        'globals': globals_data,
+                        'seed_start': int(globals_data.get('SEED_START', 0)) % 4294967296,
                     })
 
     print(f"Collected {len(jobs)} jobs")
     return jobs
 
-
 def run_storytools_execution(config, allowed_jobtypes=None, target_project=None, target_sequence=None, target_shot=None):
     globals_data = config['globals']
     init_host_queues(globals_data)
-
     jobs = collect_jobs(config, allowed_jobtypes, target_project, target_sequence, target_shot)
     if not jobs:
         print("No jobs to queue.")
         return []
 
     all_results = []
-
     for job in jobs:
         try:
             base_path = jobtype_to_json.get(job['jt'])
@@ -343,8 +387,8 @@ def run_storytools_execution(config, allowed_jobtypes=None, target_project=None,
 
             queued_ids = queue_workflow_via_api(
                 server_url = target_server,
-                payload    = payload,
-                num_jobs   = job['num_jobs']
+                payload = payload,
+                num_jobs = job['num_jobs']
             )
 
             all_results.append({
@@ -356,7 +400,6 @@ def run_storytools_execution(config, allowed_jobtypes=None, target_project=None,
 
             print(f"{job['jt']} {job['project']}/{job['sequence']}/{job['shot_id']}/{job['subshot_id']} → "
                   f"{len(queued_ids)} jobs queued on {target_server}")
-
         except Exception as e:
             print(f"Error queuing {job['jt']}: {e}")
             all_results.append({
@@ -369,13 +412,12 @@ def run_storytools_execution(config, allowed_jobtypes=None, target_project=None,
     print(f"Total queued: {total_queued} across {len(all_results)} job groups")
     return all_results
 
-
 def run_all(config_path=None, allowed_jobtypes=None, only_sequence=None):
     if config_path is None:
         default = os.path.join(os.path.dirname(__file__), '..', 'configs', 'story_template.txt')
         config_path = default if os.path.exists(default) else None
-        if not config_path:
-            raise FileNotFoundError("No config path provided and no default found.")
+    if not config_path:
+        raise FileNotFoundError("No config path provided and no default found.")
 
     config = parser.parse_config(config_path)
     project = config['globals']['PROJECT']
@@ -386,14 +428,12 @@ def run_all(config_path=None, allowed_jobtypes=None, only_sequence=None):
         config=config,
         allowed_jobtypes=allowed_jobtypes,
         target_project=project,
-        target_sequence=only_sequence,          # ← this is the key addition
+        target_sequence=only_sequence,
     )
 
     print(f"\n=== SUMMARY: {len(full_results)} executions "
           f"({sum(1 for r in full_results if r.get('success'))} successful) ===")
-
     return full_results
-
 
 if __name__ == "__main__":
     config_path = sys.argv[1] if len(sys.argv) > 1 else None

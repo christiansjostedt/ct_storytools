@@ -2,6 +2,7 @@
 PROJECT=Teapot
 WIDTH=1280
 HEIGHT=720
+
 GRAPHICAL_STYLE=Realistic, muted colors, photo, dslr, highest quality, cinematic, professional lighting, anamorphic lense, halation, 16_anam0rph1c
 NEGATIVE_PROMPT=cartoon, text, low quality, deformed limbs, bad anatomy, phantom limbs
 
@@ -9,6 +10,7 @@ DEBUG_MODE=0
 FLUX_HOST=172.16.1.12:8188, 192.168.20.2:8188
 WAN_HOST=172.16.1.12:8188
 QWEN_HOST=172.16.1.12:8188
+LTX_HOST=172.16.1.12:8188
 SEED_START=483647
 FLUX_CFG=1
 FLUX_steps=20
@@ -34,9 +36,15 @@ FLUX_LORA8_STRENGTH=
 WAN_CFG=1
 WAN_STEPS=4
 
+LTX_CHECKPOINT=ltx-2-19b-distilled-fp8.safetensors
+LTX_FPS=24
+LTX_VIDEO_LENGTH=361
+
+
 QWEN_CAMERATRANSFORMATION_MODES: 5angles,10angles,20angles,FrontBackLeftRight,TT
 QWEN_CAMERATRANSFORMATION_MODE=FrontBackLeftRight
 
+REGENERATE_VIDEOS=0
 AUTO_CLEANUP=0
 
 SYNOPSIS=
@@ -47,20 +55,18 @@ A teapot
 
 
 #WORKFLOWS AVAILABLE
-JOBTYPE=ct_flux_t2i,ct_wan2_5s,ct_qwen_cameratransform
+JOBTYPE=ct_flux_t2i,ct_wan2_5s,ct_qwen_cameratransform,ct_ltx2_i2v
 
 !---------
 SEQUENCE=Teaser
 SHOT=0010
 NAME=sh0010
 
-AUDIO_PROMPT=
+CAMERA_PROMPT=camera slowly tracks out.
+AUDIO_PROMPT=sounds of waves are crashing against the shore and the wind howling
 ENVIRONMENT_PROMPT=The environment is a A hyper-realistic, cinematic wide-angle photograph of jagged black volcanic rocks at the edge of a vast, stormy Pacific Ocean at dawn, evoking the raw isolation and primal fury of the wilderness in 'Into the Wild' fused with the relentless pounding waves of 'Cast Away'. Turbulent turquoise waves crash in slow-motion foam against the shore, sending sprays of mist high into the air, while the horizon stretches infinitely under a bruised sky of deep indigo and slate gray, pierced by subtle golden rays from the rising sun filtering through low-hanging fog, casting long ethereal shadows across the desolate, mist-shrouded coastline littered with twisted driftwood and weathered seashells. 
+ACTION_PROMPT=the teapot cracks in multiple places
 
-IMGGEN_PROMPT=a long lense shot.
-
-ACTION_PROMPT=
-
-POSITIVE_PROMPT=a green teapot on a grass lawn
+IMG_PROMPT=a long lense shot of a golden teapot on top of a wooden table.
 
 
