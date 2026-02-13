@@ -5,6 +5,7 @@
 # Added: support for ct_ltx2_i2v with combined prompt (IMG + ENV + ACTION + CAMERA + AUDIO)
 # Updated 2025/2026: LoRAs now passed via WorkflowTrigger inputs instead of patching base workflow
 # Added: LTX_HOST / LTX_HOSTS round-robin support
+# Added: Skip shots with DISABLED=1
 
 import json
 import os
@@ -23,14 +24,14 @@ jobtype_to_json = {
     'ct_wan2_5s':           os.path.join(WORKFLOWS_DIR, 'ct_wan2_5s_node.json'),
     'ct_qwen_i2i':          os.path.join(WORKFLOWS_DIR, 'ct_qwen_i2i_base.json'),
     'ct_qwen_cameratransform': os.path.join(WORKFLOWS_DIR, 'ct_qwen_cameratransform_node.json'),
-    'ct_ltx2_i2v':          os.path.join(WORKFLOWS_DIR, 'ct_ltx2_i2v_node.json'),  # ← new
+    'ct_ltx2_i2v':          os.path.join(WORKFLOWS_DIR, 'ct_ltx2_i2v_node.json'),
 }
 
 # Round-robin queues per job family
 flux_host_queue = None
 wan_host_queue = None
 qwen_host_queue = None
-ltx_host_queue = None   # ← added for LTX
+ltx_host_queue = None
 fallback_host = "http://127.0.0.1:8188"
 
 def init_host_queues(globals_data):
@@ -38,13 +39,13 @@ def init_host_queues(globals_data):
     flux_hosts = globals_data.get('FLUX_HOSTS', [])
     wan_hosts = globals_data.get('WAN_HOSTS', [])
     qwen_hosts = globals_data.get('QWEN_HOSTS', [])
-    ltx_hosts = globals_data.get('LTX_HOSTS', [])   # ← added
-    fallback = globals_data.get('FALLBACK_HOST', '127.0.0.1:8188')
+    ltx_hosts  = globals_data.get('LTX_HOSTS', [])
+    fallback   = globals_data.get('FALLBACK_HOST', '127.0.0.1:8188')
 
     flux_host_queue = deque([f"http://{h}" for h in flux_hosts]) if flux_hosts else None
-    wan_host_queue = deque([f"http://{h}" for h in wan_hosts]) if wan_hosts else None
+    wan_host_queue  = deque([f"http://{h}" for h in wan_hosts]) if wan_hosts else None
     qwen_host_queue = deque([f"http://{h}" for h in qwen_hosts]) if qwen_hosts else None
-    ltx_host_queue = deque([f"http://{h}" for h in ltx_hosts]) if ltx_hosts else None   # ← added
+    ltx_host_queue  = deque([f"http://{h}" for h in ltx_hosts]) if ltx_hosts else None
 
     fallback_host = f"http://{fallback}"
 
@@ -52,7 +53,7 @@ def init_host_queues(globals_data):
     print(f" flux → {flux_host_queue}")
     print(f" wan → {wan_host_queue}")
     print(f" qwen → {qwen_host_queue}")
-    print(f" ltx  → {ltx_host_queue}")   # ← added
+    print(f" ltx  → {ltx_host_queue}")
     print(f" fallback → {fallback_host}")
 
 def get_next_host(jobtype: str) -> str:
@@ -98,7 +99,6 @@ def load_and_modify_workflow(base_path: str, job_data: dict, seed_start: int = 0
 
     payload_str = json.dumps(loaded_data)
 
-    # Cache-bust (still useful if you keep REPLACETEXT somewhere)
     cache_buster = f" [ts:{int(time.time()*1000)}]"
     job_data['workflow_json'] += cache_buster
     payload_str = payload_str.replace("REPLACETEXT", job_data['workflow_json'])
@@ -110,7 +110,6 @@ def load_and_modify_workflow(base_path: str, job_data: dict, seed_start: int = 0
     else:
         prompt_dict = payload.get("prompt", payload)
 
-    # Common fields
     project    = job_data['project']
     sequence   = job_data['sequence']
     shot_id    = job_data['shot_id']
@@ -139,14 +138,13 @@ def load_and_modify_workflow(base_path: str, job_data: dict, seed_start: int = 0
         inputs["width"] = width
         inputs["height"] = height
         inputs["json_file"] = ""
-        inputs["num_jobs"] = job_data['num_jobs']  # still exists in flux trigger
+        inputs["num_jobs"] = job_data['num_jobs']
         inputs["project"] = project
         inputs["sequence"] = sequence
         inputs["shot"] = shot_id
         inputs["name"] = name
         inputs["seed_start"] = job_data['seed_start']
 
-        # Pass LoRAs
         for i in range(1, 9):
             fn_key = f"FLUX_LORA{i}"
             str_key = f"FLUX_LORA{i}_STRENGTH"
@@ -172,7 +170,6 @@ def load_and_modify_workflow(base_path: str, job_data: dict, seed_start: int = 0
 
         inputs = wan_node.setdefault("inputs", {})
 
-        # Build combined prompt for WAN
         parts = []
         for key in ['IMG_PROMPT', 'ENVIRONMENT_PROMPT', 'ACTION_PROMPT', 'CAMERA_PROMPT', 'AUDIO_PROMPT']:
             val = get_val(key)
@@ -202,7 +199,6 @@ def load_and_modify_workflow(base_path: str, job_data: dict, seed_start: int = 0
 
         inputs = ltx_node.setdefault("inputs", {})
 
-        # Build combined prompt following LTX guidelines order
         parts = []
         for key in ['IMG_PROMPT', 'ENVIRONMENT_PROMPT', 'ACTION_PROMPT', 'CAMERA_PROMPT', 'AUDIO_PROMPT']:
             val = get_val(key)
@@ -224,7 +220,6 @@ def load_and_modify_workflow(base_path: str, job_data: dict, seed_start: int = 0
         inputs["shot"]           = shot_id
         inputs["name"]           = name
 
-        # Regenerate is unprefixed → can be used by other video jobs later
         regen_raw = get_val('REGENERATE_VIDEOS', '0').strip().lower()
         regenerate = regen_raw in ('1', 'true', 'yes', 'on')
         inputs["regenerate"] = regenerate
@@ -257,7 +252,6 @@ def load_and_modify_workflow(base_path: str, job_data: dict, seed_start: int = 0
         prompt_dict["1"]["inputs"] = inputs
 
     else:
-        # generic fallback (rarely used now)
         for nid, node in prompt_dict.items():
             cls = node.get("class_type", "")
             if cls in ["PrimitiveInt", "Int"] and "value" in node["inputs"]:
@@ -266,7 +260,6 @@ def load_and_modify_workflow(base_path: str, job_data: dict, seed_start: int = 0
             if cls == "KSampler":
                 node["inputs"]["seed"] = job_data['seed_start']
 
-    # Filename prefix (common safety net)
     filename_prefix = f"{project}/{sequence}/{shot_id}/{name}_"
     for nid, node in prompt_dict.items():
         if node.get("class_type") in ["SaveImage", "SaveVideo"]:
@@ -314,6 +307,14 @@ def collect_jobs(config, allowed_jobtypes=None, target_project=None, target_sequ
             for shot_id in shots_to_run:
                 for subshot_id in sorted(config[project][seq][shot_id]):
                     shot_data = config[project][seq][shot_id][subshot_id]
+
+                    # ─── NEW: Skip disabled shots ───────────────────────────────────────
+                    disabled_val = shot_data.get('DISABLED', '0').strip().lower()
+                    if disabled_val in ('1', 'yes', 'true', 'on', 'disabled'):
+                        print(f"Skipped disabled shot: {project}/{seq}/{shot_id}/{subshot_id}")
+                        continue
+                    # ────────────────────────────────────────────────────────────────────
+
                     jobtype_str = shot_data.get('JOBTYPE') or shot_data.get('IMAGE_JOBTYPE') or shot_data.get('VIDEO_JOBTYPE')
                     if not jobtype_str:
                         continue
@@ -321,7 +322,6 @@ def collect_jobs(config, allowed_jobtypes=None, target_project=None, target_sequ
                     if jt not in jobtypes_list:
                         continue
 
-                    # Use IMG_PROMPT instead of old POSITIVE_PROMPT
                     workflow_json = ""
                     if jt not in ['ct_qwen_cameratransform']:
                         prompt_parts = []
@@ -342,7 +342,7 @@ def collect_jobs(config, allowed_jobtypes=None, target_project=None, target_sequ
                     if 'flux' in jt.lower():
                         num_jobs = int(shot_data.get('FLUX_ITERATIONS', globals_data.get('FLUX_ITERATIONS', 1)))
                     elif 'wan' in jt.lower() or 'ltx' in jt.lower():
-                        num_jobs = 1  # triggers handle batching internally now
+                        num_jobs = 1
                     elif 'qwen' in jt.lower():
                         num_jobs = int(shot_data.get('GENERATE_QWEN_ANGLES', globals_data.get('GENERATE_QWEN_ANGLES', 1)))
                     else:

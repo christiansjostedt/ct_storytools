@@ -40,12 +40,14 @@ LTX_CHECKPOINT=ltx-2-19b-distilled-fp8.safetensors
 LTX_FPS=24
 LTX_VIDEO_LENGTH=361
 
-
 QWEN_CAMERATRANSFORMATION_MODES: 5angles,10angles,20angles,FrontBackLeftRight,TT
 QWEN_CAMERATRANSFORMATION_MODE=FrontBackLeftRight
 
 REGENERATE_VIDEOS=0
 AUTO_CLEANUP=0
+
+#WORKFLOWS AVAILABLE
+JOBTYPE=ct_flux_t2i,ct_wan2_5s,ct_qwen_cameratransform,ct_ltx2_i2v
 
 SYNOPSIS=
 A teapot
@@ -54,8 +56,7 @@ A teapot
 
 
 
-#WORKFLOWS AVAILABLE
-JOBTYPE=ct_flux_t2i,ct_wan2_5s,ct_qwen_cameratransform,ct_ltx2_i2v
+
 
 !---------
 SEQUENCE=Teaser
