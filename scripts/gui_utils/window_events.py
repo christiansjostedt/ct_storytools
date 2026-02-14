@@ -1,28 +1,22 @@
 # gui_utils/window_events.py
 from PySide6.QtCore import QTimer, Qt
+from PySide6.QtWidgets import QMessageBox
+import re
 
 
 def connect_events(window):
-    window.btn_new_seq.clicked.connect(lambda: create_new_sequence(window))
-    window.btn_new_shot.clicked.connect(lambda: create_new_shot(window))
-    window.btn_run_all.clicked.connect(lambda: run_all_threaded(window))
-    window.btn_run_selected.clicked.connect(lambda: run_selected_threaded(window))
     window.font_combo.currentTextChanged.connect(window._update_editor_font)
     window.jobtype_combo.currentTextChanged.connect(lambda text: on_jobtype_changed(window, text))
 
 
 def on_tree_selection_changed(window, selected, deselected):
-    print("on_tree_selection_changed triggered")
-
     selected_indexes = window.tree.selectionModel().selectedIndexes()
     shot_count = sum(
         1 for idx in selected_indexes
         if window.tree.model().itemFromIndex(idx).data(Qt.ItemDataRole.UserRole)
     )
-    print(f"  shot_count: {shot_count}")
 
     if shot_count == 0:
-        print("  No shots selected - clearing editor")
         window.editor.setPlainText("")
         window.editor.setReadOnly(True)
         window.editor_label.setText("No shots selected")
@@ -32,28 +26,45 @@ def on_tree_selection_changed(window, selected, deselected):
         return
 
     current = window.tree.currentIndex()
-    print(f"  Current index valid: {current.isValid()}")
+
+    # Auto-save previous shot if editor was modified
+    if window.selection.has_shot_selected() and window.editor.document().isModified():
+        prev_seq = window.selection.selected_seq
+        prev_shot = window.selection.selected_shot
+        if prev_seq and prev_shot:
+            new_text = window.editor.toPlainText()
+            success, msg = window.config_manager.save_changes(prev_seq, prev_shot, new_text)
+            if success:
+                print(f"[AUTO-SAVE] Saved changes to {prev_seq}/{prev_shot}")
+                window.statusBar().showMessage("Auto-saved previous shot", 3000)
+            else:
+                print(f"[AUTO-SAVE ERROR] {msg}")
+                window.statusBar().showMessage(f"Auto-save failed: {msg}", 8000)
 
     if shot_count == 1 and current.isValid():
         item = window.tree.model().itemFromIndex(current)
         data = item.data(Qt.ItemDataRole.UserRole)
-        print(f"  Selected item data: {data}")
         if data:
             seq, shot = data
-            print(f"  Updating editor for shot {shot} in seq {seq}")
             window.last_selected_shot = (seq, shot)
             window.selection.set_from_single_shot(seq, shot, window.config_manager.config, window.jobtype_combo)
 
             key = (seq, shot)
             if key in window.config_manager.shot_ranges:
                 start, end = window.config_manager.shot_ranges[key]
-                block_text = "".join(window.config_manager.original_lines[start:end])
-                print(f"  Setting editor text (length {len(block_text)})")
+                block_lines = window.config_manager.original_lines[start:end]
+
+                filtered_lines = []
+                for ln in block_lines:
+                    stripped = ln.strip()
+                    if not re.match(r'^\s*STATUS\s*[_A-Z0-9]*\s*=', stripped, re.IGNORECASE):
+                        filtered_lines.append(ln)
+
+                block_text = "".join(filtered_lines)
                 window.editor.setPlainText(block_text)
                 window.editor.setReadOnly(False)
                 window.editor_label.setText(f"Editing shot: {shot} ({seq})")
             else:
-                print("  Block not found")
                 window.editor.setPlainText("# Block not found")
                 window.editor.setReadOnly(True)
 
@@ -65,7 +76,7 @@ def on_tree_selection_changed(window, selected, deselected):
             )
             return
 
-    print("  Multi-shot or no valid current - disabling editor")
+    # Multi-shot or no valid current
     window.editor.setPlainText("")
     window.editor.setReadOnly(True)
     window.editor_label.setText(f"{shot_count} shots selected – editor disabled for batch")

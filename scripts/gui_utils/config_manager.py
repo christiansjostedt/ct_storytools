@@ -39,7 +39,11 @@ class ConfigManager:
             with open(self.config_path, "w", encoding="utf-8", newline="") as f:
                 f.writelines(new_lines)
             self.original_lines = new_lines
-            self._scan_shot_ranges()  # refresh ranges
+            self._scan_shot_ranges()  # Re-scan ranges
+            # Reload full parsed config (critical for tree/editor to see changes)
+            success, msg = self.load_config(self.config_path)
+            if not success:
+                print(f"[WARNING] Failed to reload config after save: {msg}")
             return True, "Saved"
         except Exception as e:
             return False, str(e)

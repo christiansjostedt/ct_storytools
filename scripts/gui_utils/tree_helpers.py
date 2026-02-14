@@ -1,4 +1,4 @@
-# gui_utils/tree_helpers.py (full)
+# gui_utils/tree_helpers.py
 import re
 
 from PySide6.QtGui import (
@@ -10,6 +10,9 @@ from PySide6.QtGui import (
 )
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QHeaderView
+
+
+STATUS_COLOR_ROLE = 1001  # Custom role to store status QColor for stylesheet override
 
 
 def populate_tree(tree, config, project, shot_ranges, original_lines):
@@ -48,6 +51,7 @@ def populate_tree(tree, config, project, shot_ranges, original_lines):
                 )
                 if is_disabled:
                     shot_item.setForeground(QColor(220, 80, 80))
+                    shot_item.setData(QColor(220, 80, 80), STATUS_COLOR_ROLE)
 
             current_jobtype = tree.window().selection.selected_jobtype
             if current_jobtype and current_jobtype != "Select Jobtype":
@@ -56,15 +60,25 @@ def populate_tree(tree, config, project, shot_ranges, original_lines):
                     if status_key in sub:
                         status_val = sub[status_key].strip().lower()
                         if status_val == "done":
-                            shot_item.setForeground(QColor(100, 180, 255))  # blue
+                            color = QColor(100, 180, 255)  # blue
+                            shot_item.setForeground(color)
+                            shot_item.setData(color, STATUS_COLOR_ROLE)
                         elif status_val == "run":
-                            shot_item.setForeground(QColor(255, 140, 0))   # orange
+                            color = QColor(255, 140, 0)   # orange
+                            shot_item.setForeground(color)
+                            shot_item.setData(color, STATUS_COLOR_ROLE)
                         elif status_val == "changes":
-                            shot_item.setForeground(QColor(200, 0, 255))   # purple
+                            color = QColor(200, 0, 255)   # purple
+                            shot_item.setForeground(color)
+                            shot_item.setData(color, STATUS_COLOR_ROLE)
                         elif status_val == "omit":
-                            shot_item.setForeground(QColor(128, 128, 128)) # dark grey
+                            color = QColor(128, 128, 128) # dark grey
+                            shot_item.setForeground(color)
+                            shot_item.setData(color, STATUS_COLOR_ROLE)
                         elif status_val == "not_started":
-                            shot_item.setForeground(QColor(224, 224, 224))
+                            color = QColor(224, 224, 224)
+                            shot_item.setForeground(color)
+                            shot_item.setData(color, STATUS_COLOR_ROLE)
                         break
 
             seq_item.appendRow(shot_item)

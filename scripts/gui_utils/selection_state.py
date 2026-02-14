@@ -54,29 +54,28 @@ class SelectionState:
         else:
             self.selected_jobtype = text
 
-        # Force tree refresh when jobtype changes
         if tree_view is not None:
-            tree_view.viewport().update()  # full viewport refresh
+            tree_view.viewport().update()
             tree_view.updateGeometry()
             tree_view.repaint()
 
     def update_host_checkboxes(self, hosts_layout, globals_config, selected_jobtype):
-        for i in reversed(range(hosts_layout.count())):
-            widget = hosts_layout.itemAt(i).widget()
-            if widget:
-                widget.deleteLater()
+        # Clear existing widgets completely
+        while hosts_layout.count():
+            item = hosts_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
         self.host_checkboxes.clear()
 
-        if not selected_jobtype or not globals_config:
+        if not selected_jobtype or selected_jobtype == "Select Jobtype":
             hosts_layout.addWidget(QLabel("No jobtype selected"))
-            hosts_layout.setAlignment(Qt.AlignTop)
             hosts_layout.addStretch()
             return
 
         host_key = JOBTYPE_HOST_MAPPING.get(selected_jobtype)
         if not host_key:
             hosts_layout.addWidget(QLabel("No host key for this jobtype"))
-            hosts_layout.setAlignment(Qt.AlignTop)
             hosts_layout.addStretch()
             return
 
@@ -88,7 +87,6 @@ class SelectionState:
 
         if not hosts:
             hosts_layout.addWidget(QLabel("No hosts configured"))
-            hosts_layout.setAlignment(Qt.AlignTop)
             hosts_layout.addStretch()
             return
 
@@ -106,7 +104,6 @@ class SelectionState:
             hosts_layout.addWidget(cb)
             self.host_checkboxes.append((host, cb))
 
-        hosts_layout.setAlignment(Qt.AlignTop)
         hosts_layout.addStretch()
 
     def _on_host_toggled(self, jobtype, host, checked):
